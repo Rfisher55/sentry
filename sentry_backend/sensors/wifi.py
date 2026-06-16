@@ -18,11 +18,61 @@ import shutil
 import re
 import platform
 import collections
+import time
+import ctypes
 
 
 class WiFiSensor(Sensor):
     channel = "wifi"
     name = "Wi-Fi Scanner"
+
+    def __init__(self):
+        super().__init__()
+        self._primed = False   # first forced scan needs a moment to populate
+
+    def _trigger_wlan_scan(self):
+        """Force a fresh Wi-Fi scan via the native WLAN API.
+
+        Why this matters: Windows' `netsh wlan show networks` only reads a CACHE.
+        For a connected, idle adapter that cache frequently holds just the AP
+        you're joined to — which made SENTRY nearly blind to the real Wi-Fi
+        neighbourhood (1 network instead of ~13). WlanScan asks the driver to do
+        a real scan; results land in the cache a few seconds later. Best-effort,
+        Windows-only, non-blocking: any failure just falls back to the cache.
+        """
+        if platform.system() != "Windows":
+            return
+        try:
+            import ctypes.wintypes as wt
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("Data1", wt.DWORD), ("Data2", wt.WORD),
+                            ("Data3", wt.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+            class IFINFO(ctypes.Structure):
+                _fields_ = [("InterfaceGuid", GUID),
+                            ("strInterfaceDescription", wt.WCHAR * 256),
+                            ("isState", wt.DWORD)]
+
+            class IFLIST(ctypes.Structure):
+                _fields_ = [("dwNumberOfItems", wt.DWORD), ("dwIndex", wt.DWORD),
+                            ("InterfaceInfo", IFINFO * 1)]
+
+            wlan = ctypes.windll.wlanapi
+            neg = wt.DWORD()
+            h = wt.HANDLE()
+            if wlan.WlanOpenHandle(2, None, ctypes.byref(neg), ctypes.byref(h)) != 0:
+                return
+            try:
+                pl = ctypes.POINTER(IFLIST)()
+                if wlan.WlanEnumInterfaces(h, None, ctypes.byref(pl)) == 0 \
+                        and pl.contents.dwNumberOfItems:
+                    guid = pl.contents.InterfaceInfo[0].InterfaceGuid
+                    wlan.WlanScan(h, ctypes.byref(guid), None, None, None)
+            finally:
+                wlan.WlanCloseHandle(h, None)
+        except Exception:
+            pass
 
     def available(self) -> bool:
         if platform.system() == "Windows":
@@ -72,8 +122,9 @@ class WiFiSensor(Sensor):
 
     def _scan_nmcli(self):
         out = subprocess.run(
-            ["nmcli", "-t", "-f", "BSSID,SSID,CHAN,SIGNAL,FREQ", "device", "wifi", "list"],
-            capture_output=True, text=True, timeout=12).stdout
+            ["nmcli", "-t", "-f", "BSSID,SSID,CHAN,SIGNAL,FREQ", "device", "wifi",
+             "list", "--rescan", "auto"],
+            capture_output=True, text=True, timeout=20).stdout
         aps = []
         for line in out.strip().splitlines():
             parts = line.replace("\\:", "§").split(":")
@@ -87,7 +138,18 @@ class WiFiSensor(Sensor):
 
     def scan(self):
         try:
-            aps = self._scan_netsh() if platform.system() == "Windows" else self._scan_nmcli()
+            if platform.system() == "Windows":
+                # Trigger a real scan, then read the cache. WlanScan is async, so
+                # a given read returns the PREVIOUS trigger's results (≤ the scan
+                # interval old) — except the very first time, where we wait once
+                # for it to populate so the user isn't briefly shown "1 network".
+                self._trigger_wlan_scan()
+                if not self._primed:
+                    time.sleep(4.0)
+                    self._primed = True
+                aps = self._scan_netsh()
+            else:
+                aps = self._scan_nmcli()
         except Exception as e:
             self._error = str(e)
             return []
