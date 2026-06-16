@@ -114,6 +114,47 @@ NAME_HINTS = [
     ("peak pro", "Vape/accessory (Puffco)"), ("crystal uhd", "Samsung TV"),
 ]
 
+# ---- LAN hostname / UPnP-server keyword -> (device type, is_camera) ----------
+# Reverse-DNS names ("RingStickUpCam-0a", "BRW4C82...", "amazon-39ef...") and
+# SSDP/UPnP 'server' strings are often the richest clue for a wired/Wi-Fi LAN
+# device that answers no scanned ports. Matched in order; first hit wins, so the
+# most specific tokens come first.
+HOST_HINTS = [
+    ("ringstickup", "Ring camera", True), ("doorbell", "Video doorbell", True),
+    ("nestcam", "Nest camera", True), ("wyzecam", "Wyze camera", True),
+    ("wyze", "Wyze device", False), ("ringchime", "Ring chime", False),
+    ("ring", "Ring device", False), ("ipcam", "IP camera", True),
+    ("ipcamera", "IP camera", True), ("cam", "IP camera", True),
+    ("brw", "Brother printer", False), ("epson", "Epson printer", False),
+    ("canon", "Canon printer", False), ("officejet", "HP printer", False),
+    ("printer", "Network printer", False),
+    ("firetv", "Amazon Fire TV", False), ("fire-tv", "Amazon Fire TV", False),
+    ("echo", "Amazon Echo", False), ("alexa", "Amazon Echo", False),
+    ("amazon", "Amazon device", False), ("roku", "Roku", False),
+    ("chromecast", "Chromecast", False), ("googlehome", "Google Home", False),
+    ("google-home", "Google Home", False), ("nest", "Nest device", False),
+    ("shield", "NVIDIA Shield", False), ("appletv", "Apple TV", False),
+    ("apple-tv", "Apple TV", False), ("android", "Android device", False),
+    ("iphone", "iPhone", False), ("ipad", "iPad", False),
+    ("macbook", "MacBook", False), ("sonos", "Sonos speaker", False),
+    ("samsung", "Samsung device", False), ("tidbyt", "Tidbyt display", False),
+    ("raspberry", "Raspberry Pi", False), ("synology", "Synology NAS", False),
+    ("openwrt", "Router", False),
+]
+
+
+def classify_host(hostname, ssdp=""):
+    """Map a reverse-DNS hostname (and/or UPnP server string) to a device type.
+    Returns (type, is_camera, matched_text) or (None, False, "")."""
+    for src in (hostname or "", ssdp or ""):
+        s = src.lower()
+        if not s:
+            continue
+        for kw, typ, cam in HOST_HINTS:
+            if kw in s:
+                return typ, cam, src
+    return None, False, ""
+
 # ---- camera-tell-tale TCP ports --------------------------------------------
 # STRONG: these strongly imply a camera/DVR on their own.
 CAMERA_PORTS = {
@@ -291,7 +332,7 @@ def classify_ble_manufacturer(mfr):
 
 def identify(*, mac="", name="", vendor=None, ble_manufacturer=None,
              ble_services=None, ble_appearance=None, ssid=None, open_ports=None,
-             seen_via=""):
+             hostname="", ssdp="", seen_via=""):
     """Best-guess DEVICE TYPE (what it is) from whatever clues are available.
 
     The returned `type` is always a real device type (iPhone, earbuds, printer,
@@ -389,6 +430,22 @@ def identify(*, mac="", name="", vendor=None, ble_manufacturer=None,
             dtype = dtype or st
             conf += 12
             evidence.append(f'SSID "{ssid}"')
+
+    # (E2) LAN hostname / UPnP server string — often the best clue for a wired/
+    # Wi-Fi device that answers no ports (e.g. "RingStickUpCam-0a" → Ring camera).
+    ht, hcam, hsrc = classify_host(hostname, ssdp)
+    _generic = (dtype is None or dtype.startswith("Unknown")
+                or "Networked device" in (dtype or "") or (dtype or "").endswith(" device"))
+    if ht and _generic:
+        dtype = ht
+        conf += 28
+        evidence.append(f'hostname/UPnP "{hsrc}"')
+        if hcam:
+            is_camera = True
+    elif ht and hcam and not is_camera:
+        # a camera hint is important even if a (non-camera) type was already set
+        is_camera = True
+        evidence.append(f'camera hostname "{hsrc}"')
 
     if rand and not vendor:
         evidence.append("randomized/private MAC (vendor hidden)")

@@ -132,6 +132,42 @@ class NetworkSensor(Sensor):
                 pass
         return open_ports
 
+    def _reverse_dns(self, ip):
+        """Reverse-DNS hostname for a LAN IP — often the single richest clue
+        ('RingStickUpCam-0a', 'BRW4C82...', 'amazon-39ef...'). '' if none."""
+        try:
+            return socket.gethostbyaddr(ip)[0]
+        except Exception:
+            return ""
+
+    def _ssdp_probe(self, timeout=2.5):
+        """One SSDP/UPnP M-SEARCH; collect {ip: server-string} from responders
+        (media renderers, smart TVs, some cameras). Listen-only, best-effort."""
+        res = {}
+        try:
+            msg = ("M-SEARCH * HTTP/1.1\r\nHOST:239.255.255.250:1900\r\n"
+                   'MAN:"ssdp:discover"\r\nMX:2\r\nST:ssdp:all\r\n\r\n').encode()
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.settimeout(timeout)
+            s.sendto(msg, ("239.255.255.250", 1900))
+            end = time.time() + timeout
+            while time.time() < end:
+                try:
+                    data, addr = s.recvfrom(2048)
+                except Exception:
+                    break
+                srv = ""
+                for ln in data.decode("latin1").split("\r\n"):
+                    if ln.lower().startswith("server:"):
+                        srv = ln[7:].strip()
+                if srv:
+                    res.setdefault(addr[0], srv)
+            s.close()
+        except Exception:
+            pass
+        return res
+
     def _full_scan(self):
         if not self._subnet:
             return []
@@ -141,11 +177,14 @@ class NetworkSensor(Sensor):
             list(ex.map(self._ping, targets))
         # 2) read ARP for live hosts
         table = self._arp_table()
-        # 3) port-scan each live host (parallel across hosts)
+        # 2b) one SSDP/UPnP sweep for richer identification of port-silent hosts
+        ssdp = self._ssdp_probe()
+        # 3) port-scan + reverse-DNS each live host (parallel across hosts)
         def fingerprint(item):
             ip, mac = item
             ports = self._scan_ports(ip, identify.ALL_SCAN_PORTS)
-            return ip, mac, ports
+            host = self._reverse_dns(ip)
+            return ip, mac, ports, host
         results = []
         if table:
             with cf.ThreadPoolExecutor(max_workers=40) as ex:
@@ -155,10 +194,12 @@ class NetworkSensor(Sensor):
             len(results), self._subnet)
 
         dets = []
-        for ip, mac, ports in results:
+        for ip, mac, ports, host in results:
             vendor, rand = identify.vendor_for_mac(mac)
+            srv = ssdp.get(ip, "")
             info = identify.identify(mac=mac, vendor=vendor, open_ports=ports,
-                                     seen_via="Network (LAN)")
+                                     hostname=host, ssdp=srv, seen_via="Network (LAN)")
+            host_disp = host.split(".")[0] if host else ""   # drop .lan/.local suffix
             is_self = (ip == self._self_ip)
             # port-only fingerprint: readable service names + hedged OS/role
             # inferences (NOT real OS fingerprinting — see identify.port_fingerprint)
@@ -190,6 +231,10 @@ class NetworkSensor(Sensor):
 
             ev = list(info["evidence"])
             ev.append(f"IP {ip}")
+            if host:
+                ev.append(f"hostname {host}")
+            if srv:
+                ev.append("UPnP: " + srv[:48])
             if services:
                 ev.append("services: " + services)
             if os_hint:
@@ -204,7 +249,7 @@ class NetworkSensor(Sensor):
             dets.append(Detection(
                 kind=kind, channel="network", severity=sev, category=cat,
                 maker=identify.vendor_label(mac),
-                model=info["type"], mac=mac, ip=ip,
+                model=host_disp or info["type"], mac=mac, ip=ip,
                 ident=f"{ip} · {svc_txt}", bandtxt="LAN (Wi-Fi)",
                 behaviortxt=behavior,
                 surveilling=surveil, cancapture=cap, capturingnow=now,
