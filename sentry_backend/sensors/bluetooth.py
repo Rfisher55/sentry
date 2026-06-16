@@ -27,7 +27,10 @@ APPLE_COMPANY_ID = 0x004C   # Apple — Find My / AirTag advertisements
 _STALE_AFTER = 45.0         # GRACE: keep a device this long after its last advert,
                             # so an intermittently-advertising device doesn't vanish
                             # just because one scan cycle didn't hear it.
-_FOLLOWING_AFTER = 30.0     # seen continuously this long ⇒ flag as possibly following
+# NOTE: we intentionally do NOT infer "following you" from time-present. A device
+# being seen for a while only means it's nearby and powered — from a stationary
+# scan that is indistinguishable from a neighbor's device. Real "following"
+# detection needs YOU to move and watch whether it stays (use Locate).
 
 
 class BLESensor(Sensor):
@@ -136,7 +139,6 @@ class BLESensor(Sensor):
         mfr = rec.get("mfr", {})
         svcs = rec.get("svcs", set())
         age = now - rec["first_seen"]
-        following = age >= _FOLLOWING_AFTER
 
         # 16-bit assigned numbers from the advertised 128-bit service UUIDs
         svc16 = []
@@ -165,24 +167,32 @@ class BLESensor(Sensor):
             kw.setdefault("evidence", list(info["evidence"]))
             return Detection(**kw)
 
-        # AirTag / Find My: Apple manufacturer data with the Find My type byte
+        # Apple Find My beacon (manufacturer type 0x12). HONEST HANDLING: this
+        # exact advert is emitted by AirTags/Find My tags AND by separated Apple
+        # devices participating in the Find My network — so a single stationary
+        # reading CANNOT distinguish "a tracker following you" from "a neighbor's
+        # iPhone." We therefore report it as a detected beacon at modest
+        # confidence, severity "notable", and NEVER auto-escalate to a red
+        # "traveling with you" alert based on how long it's been seen.
         if APPLE_COMPANY_ID in mfr:
             payload = mfr[APPLE_COMPANY_ID]
-            if payload and payload[0] in (0x12, 0x07) and "tracker" in dtype.lower():
-                sev = "alert" if following else "suspect"
+            if payload and payload[0] == 0x12 and "tracker" in dtype.lower():
                 return det(
-                    kind="Item tracker (Apple Find My)", channel="bluetooth",
-                    severity=sev, category="tracker",
-                    maker="Apple", model=name or "AirTag / Find My", mac=addr,
+                    kind="Find My beacon (nearby)", channel="bluetooth",
+                    severity="notable", category="tracker",
+                    maker="Apple", model=name or "Find My / AirTag-class", mac=addr,
                     ident="Apple Find My beacon", bandtxt="2.4 GHz",
-                    device_type="Item tracker (Apple Find My)",
-                    behaviortxt=(f"Seen continuously for {int(age)}s — consistent with "
-                                 "traveling with you" if following
-                                 else "Find My tracker advertising nearby"),
-                    surveilling="Your location, continuously",
-                    cancapture="Position via the Find My network",
-                    capturingnow="Reporting location through nearby Apple devices",
-                    confidence=88 if following else max(70, info["confidence"]), rssi=rssi,
+                    device_type="Find My beacon (nearby)",
+                    behaviortxt=(f"Apple Find My beacon advertising nearby (seen "
+                                 f"{rec['count']}× over {int(age)}s). Could be an "
+                                 "AirTag/Find My tag OR a passing/own Apple device — a "
+                                 "stationary scan can't tell. To check if it's following "
+                                 "you, open Locate and move around: a real follower stays "
+                                 "strong as you change rooms or locations."),
+                    surveilling="Your location — only if it's a tag you're unknowingly carrying",
+                    cancapture="Location via Apple's Find My network (only if it's a tracker)",
+                    capturingnow="Advertising on the Find My network",
+                    confidence=55, rssi=rssi,
                 )
 
         # Everything else: primary label is the DEVICE TYPE / its real name.
@@ -194,8 +204,7 @@ class BLESensor(Sensor):
             ident=(f'"{name}"' if name else dtype),
             bandtxt="2.4 GHz",
             behaviortxt=(f"{dtype}, seen {rec['count']}× over {int(age)}s via {METHOD}."
-                         + (" Identified from: " + "; ".join(info["evidence"]) + "." if info["evidence"] else "")
-                         + (" Has been near you a while." if following else "")),
+                         + (" Identified from: " + "; ".join(info["evidence"]) + "." if info["evidence"] else "")),
             surveilling="Depends on the device type",
             cancapture="Depends on the device",
             capturingnow="Advertising on BLE",
