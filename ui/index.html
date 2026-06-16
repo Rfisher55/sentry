@@ -1228,13 +1228,21 @@ function showSensorStatus(sensors){
   if(notes.length) html+='<div style="color:var(--dimmer);font-size:10px;margin-top:3px">'+notes.join('<br>')+'</div>';
   const el=$('sensorStatus'); if(el) el.innerHTML=html;
 }
-let liveWs=null;
+let liveWs=null, _reconnectTimer=null, _reconnectDelay=1000;
+// Auto-reconnect: if the live feed drops (server restart, phone Wi-Fi sleep,
+// roaming) keep retrying with backoff instead of silently going stale. The
+// DEMO/FEED-LOST banner stays up until a real message arrives again.
+function scheduleReconnect(){
+  if(_reconnectTimer) return;                         // one pending attempt at a time
+  _reconnectTimer=setTimeout(()=>{ _reconnectTimer=null; connectBackend(); }, _reconnectDelay);
+  _reconnectDelay=Math.min(Math.round(_reconnectDelay*1.7), 10000);   // backoff, cap 10s
+}
 function connectBackend(){
   let ws;
   // Use the SAME host the page was loaded from (the laptop's LAN IP when opened
   // from a phone), not a hardcoded localhost — so the live feed works remotely.
   const wsHost=location.hostname||'localhost';
-  try{ ws=new WebSocket('ws://'+wsHost+':8765'); }catch(e){ return; }
+  try{ ws=new WebSocket('ws://'+wsHost+':8765'); }catch(e){ scheduleReconnect(); return; }
   liveWs=ws;
   ws.onopen=()=>{ liveConnected=true;
     const s=$('stAlert'); /* status hint handled on data */ };
@@ -1243,6 +1251,7 @@ function connectBackend(){
       const msg=JSON.parse(ev.data);
       if(msg && Array.isArray(msg.devices)){
         liveConnected=true; setConnState(true);   // real data arrived → hide DEMO banner
+        _reconnectDelay=1000;                      // healthy feed → reset backoff
         if(Array.isArray(msg.sensors)){ B._sensors=msg.sensors; showSensorStatus(msg.sensors); }
         // merge into the grace roster (stable order, no random drops), then do
         // ONLY in-place updates — never rebuild or close anything in view.
@@ -1262,8 +1271,8 @@ function connectBackend(){
       }
     }catch(e){}
   };
-  ws.onclose=()=>{ liveConnected=false; setConnState(false); };   // feed dropped → show banner
-  ws.onerror=()=>{ setConnState(false); };
+  ws.onclose=()=>{ liveConnected=false; setConnState(false); scheduleReconnect(); };  // drop → banner + retry
+  ws.onerror=()=>{ setConnState(false); try{ ws.close(); }catch(e){} };   // → onclose → reconnect
 }
 setConnState(false);   // start in DEMO state until real data actually arrives
 connectBackend();
