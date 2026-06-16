@@ -35,6 +35,29 @@ def estimate_distance_m(rssi):
     return max(0.3, min(dist, 60.0))
 
 
+def proximity_of(rssi):
+    """Turn RSSI into an HONEST, COARSE proximity — a band plus a wide range —
+    instead of a falsely-precise single metre value.
+
+    RSSI→distance is genuinely rough indoors (multipath, body-blocking, antenna
+    gain), so the real error is easily a factor of ~2. We therefore present a
+    range (½× … 2× the point estimate) and a plain-language band, never a hard
+    number like "0.4 m". Returns None when RSSI is unknown.
+    """
+    d = estimate_distance_m(rssi)
+    if d is None:
+        return None
+    lo, hi = d * 0.5, d * 2.0
+    band = ("very close" if d < 1.5 else "close" if d < 4 else
+            "nearby" if d < 10 else "far" if d < 25 else "very far")
+
+    def r(x):
+        return int(round(x)) if x >= 2 else round(x, 1)
+
+    return {"distance": round(d, 1), "lo": r(lo), "hi": r(hi), "band": band,
+            "text": f"{band} · approx {r(lo)}–{r(hi)} m"}
+
+
 @dataclass
 class Detection:
     """One real thing a sensor found."""
@@ -78,29 +101,37 @@ class Detection:
         # compass direction.
         d["bearing"] = None
 
+        prox = proximity_of(self.rssi) if self.distance is None else None
         if self.distance is not None:
-            d["distance"] = round(float(self.distance), 1)
+            # a real measured distance (rare; e.g. future ranging hardware)
+            dist = round(float(self.distance), 1)
+            d["distance"] = dist
+            d["proximity"] = ""
+            d["distance_txt"] = f"approx {dist} m (reported)"
             d["uncertainty"] = round(float(self.uncertainty), 1) if self.uncertainty is not None else 1.0
             d["locnote"] = "Distance reported by the sensor."
+        elif prox is not None:
+            d["distance"] = prox["distance"]            # point estimate (radar ring only)
+            d["proximity"] = prox["band"]
+            d["distance_txt"] = prox["text"]
+            # uncertainty = half the band width, so the radar ring honestly looks fuzzy
+            d["uncertainty"] = round(max(prox["distance"] - prox["lo"],
+                                         prox["hi"] - prox["distance"]), 1)
+            d["locnote"] = (
+                f"Proximity is a ROUGH estimate from signal strength ({self.rssi} dBm) — "
+                f"realistically {prox['lo']}–{prox['hi']} m, easily off by 2×. Direction is "
+                "NOT measured; devices are shown by distance only. Use Locate and move to home in."
+            )
         else:
-            dist = estimate_distance_m(self.rssi)
-            if dist is not None:
-                unc = max(1.0, 0.35 * dist)   # weaker/farther signal ⇒ less certain
-                d["distance"] = round(dist, 1)
-                d["uncertainty"] = round(unc, 1)
-                d["locnote"] = (
-                    f"Distance is estimated from signal strength ({self.rssi} dBm, "
-                    f"±{round(unc)} m). Direction is NOT measured — a single antenna "
-                    "can't find bearing, so devices are shown by distance only. "
-                    "Use Locate and move around to home in by signal strength."
-                )
-            else:
-                d["distance"] = 0
-                d["uncertainty"] = 0
-                d["locnote"] = (
-                    "Signal strength unavailable, so distance can't be estimated, "
-                    "and direction isn't measurable with this hardware."
-                )
+            # no signal → no distance. Never fake a "0 m" reading.
+            d["distance"] = None
+            d["proximity"] = "unknown"
+            d["distance_txt"] = "no signal — distance unknown"
+            d["uncertainty"] = None
+            d["locnote"] = (
+                "Signal strength unavailable, so distance can't be estimated, "
+                "and direction isn't measurable with this hardware."
+            )
         d["counter"] = []   # fused in later
         return d
 

@@ -466,6 +466,17 @@ function methodShort(d){
   if(m.startsWith('rf'))return'RF'; return channelName(d.channel);
 }
 function devTitle(d){ return d.device_type||d.kind; }
+// honest distance display — coarse band + wide range from the backend, never a
+// falsely-precise single metre value. distShort = compact band for tight rows.
+function distText(d){
+  if(d.distance_txt) return d.distance_txt;
+  if(d.distance!=null) return 'approx '+d.distance+' m';
+  return d.ip?'LAN (no RF range)':'—';
+}
+function distShort(d){
+  if(d.proximity && d.proximity!=='unknown') return d.proximity;
+  return d.ip?'LAN':'—';
+}
 function devName(d){ return (d.model&&d.model!=='—'&&d.model!==devTitle(d))?d.model:''; }
 function updateDevRow(row,d){
   const isCam=d.category==='camera';
@@ -483,7 +494,7 @@ function updateDevRow(row,d){
     +(d._stale?' · last heard '+Math.round(d._ageMs/1000)+'s ago':'');
   row.querySelector('.chip').textContent=methodShort(d);
   row.querySelector('.sigbar').innerHTML=miniBar(d.rssi);
-  row.querySelector('.br').textContent=(d.rssi!=null&&d.distance!=null?'~'+d.distance+'m':(d.ip?'LAN':'—'));
+  row.querySelector('.br').textContent=distShort(d);
 }
 // in-place reconcile: add new rows, update existing, remove gone — NEVER rebuild
 // the whole list, so hover/clicks/scroll stay stable.
@@ -553,7 +564,7 @@ function renderDrawer(d){
       '<div class="st" style="color:var(--alert)">What it’s capturing on you now</div><div class="box danger" id="dw-now"></div>'+
       '<div class="st" style="color:var(--clear)">Where it is</div>'+
       '<div class="kv"><span class="k">Signal</span><span class="v mono" id="dw-rssi"></span></div>'+
-      '<div class="kv"><span class="k">Distance (est.)</span><span class="v mono" id="dw-dist"></span></div>'+
+      '<div class="kv"><span class="k">Proximity (rough)</span><span class="v mono" id="dw-dist"></span></div>'+
       '<div class="kv"><span class="k">Direction</span><span class="v mono" style="color:var(--dim)">not measurable</span></div>'+
       '<div class="box" style="margin-top:6px;font-size:11.5px" id="dw-locnote"></div>'+
       '<button class="locate" id="drawerLocate">◎ LOCATE IT · SIGNAL METER</button>'+
@@ -591,7 +602,7 @@ function syncDrawer(){
   setTxt('dw-cap',d.cancapture);
   setTxt('dw-now',d.capturingnow);
   setTxt('dw-rssi',d.rssi!=null?d.rssi+' dBm':'—');
-  setTxt('dw-dist','~'+d.distance+' m ±'+d.uncertainty);
+  setTxt('dw-dist', distText(d));
   setTxt('dw-locnote',d.locnote||'');
   setTxt('dw-fresh', d._stale ? ('· last heard '+Math.round(d._ageMs/1000)+'s ago — fading') : '· live');
 }
@@ -734,7 +745,7 @@ function openChannel(cid){
       devs.map(d=>'<div class="trow" data-id="'+d.id+'"><span class="td" style="background:'+SEVC[d.severity]+'"></span>'+
         '<div><div class="tk">'+devTitle(d)+'</div><div class="ts">via '+methodShort(d)+' · '+d.ident+
           (d.rssi!=null?' · '+d.rssi+' dBm':'')+'</div></div>'+
-        '<span class="tb">'+(d.distance!=null?'~'+d.distance+'m ›':'›')+'</span></div>').join('');
+        '<span class="tb">'+(distShort(d)==='—'?'›':distShort(d)+' ›')+'</span></div>').join('');
   } else {
     leftRows='<div class="emptytool">No detections on this channel right now. The station keeps monitoring it.</div>';
   }
@@ -774,7 +785,7 @@ function openTool(id){
       '<div class="trow" data-id="'+d.id+'"><span class="td" style="background:'+SEVC[d.severity]+'"></span>'+
       '<div><div class="tk">'+devTitle(d)+'</div><div class="ts">via '+methodShort(d)+' · '+toolSignal(id,d)+
         (d.rssi!=null?' · '+d.rssi+' dBm':'')+'</div></div>'+
-      '<span class="tb">'+(d.distance!=null?'~'+d.distance+'m ›':'›')+'</span></div>'
+      '<span class="tb">'+(distShort(d)==='—'?'›':distShort(d)+' ›')+'</span></div>'
     ).join('');
   } else {
     rows='<div class="emptytool">No detections on the '+t.name+' channel right now.<br><br>'+
@@ -810,7 +821,7 @@ function showIntel(devId){
     '<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Surveilling</div><div class="ablk"><div class="am">'+d.surveilling+'</div></div></div>'+
     '<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Can capture</div><div class="ablk"><div class="am">'+d.cancapture+'</div></div></div>'+
     '<div><div class="sidehd" style="color:var(--alert);margin-bottom:5px">Capturing on you now</div><div class="ablk" style="border:1px solid #3a1512"><div class="am">'+d.capturingnow+'</div></div></div>'+
-    '<div><div class="sidehd" style="color:var(--clear);margin-bottom:5px">Where it is</div><div class="ablk"><div class="am mono" style="font-size:12px">'+(d.rssi!=null?d.rssi+' dBm · ':'')+'~'+d.distance+'m ±'+d.uncertainty+'m · direction not measurable</div>'+
+    '<div><div class="sidehd" style="color:var(--clear);margin-bottom:5px">Where it is</div><div class="ablk"><div class="am mono" style="font-size:12px">'+(d.rssi!=null?d.rssi+' dBm · ':'')+distText(d)+' · direction not measurable</div>'+
       '<button class="locate" id="intelLocate">◎ LOCATE IT · SIGNAL METER</button></div></div>'+
     '<div><div class="sidehd" style="color:var(--clear);margin-bottom:5px">How to handle it</div>'+
       d.counter.map(c=>'<div class="next" style="margin-bottom:6px">'+c+'</div>').join('')+'</div>';
@@ -917,7 +928,7 @@ function openLocate(d){
     const tcol = trend==null?'#5A6470':trend>1.2?'#3FB984':trend<-1.2?'#E5564B':'#F2A93B';
     const tlabel = trend==null?'— hold steady to read —':trend>1.2?'▲ SIGNAL RISING (closer)':trend<-1.2?'▼ SIGNAL FALLING (farther)':'◆ STEADY';
     g.fillStyle=tcol;g.font='600 15px Spline Sans Mono';g.fillText(tlabel,24,162);
-    g.fillStyle='#3a4650';g.font='10px Spline Sans Mono';g.fillText('~'+dev.distance+' m (approx, from signal) · direction needs the antenna',24,182);
+    g.fillStyle='#3a4650';g.font='10px Spline Sans Mono';g.fillText(distText(dev)+' · direction needs the antenna',24,182);
     // audio
     if(locToneOn) locToneUpdate(locateDisp,dt);
     locRAF=requestAnimationFrame(step);
@@ -956,13 +967,13 @@ function locateLiveUpdate(){
     tip='Signal is falling ('+trend.toFixed(1)+' dBm). Turn around — you were closer before.'; }
   else { head='◆ Holding steady'; col='var(--amber)';
     tip='Little change. Move a few steps in any direction and watch whether the bar climbs.'; }
-  $('locSub').textContent = d&&d.rssi!=null ? (d.rssi+' dBm · ~'+d.distance+' m (est.)') : 'no signal';
+  $('locSub').textContent = d&&d.rssi!=null ? (d.rssi+' dBm · '+distText(d)) : 'no signal';
   $('locReadout').innerHTML=
     '<div class="ablk"><div class="ah" style="color:'+col+'">'+strengthPct+'% signal</div>'+
     '<div class="am" style="margin-top:6px;font-weight:600">'+head+'</div>'+
     '<div class="am" style="margin-top:4px">'+tip+'</div></div>'+
     '<div style="margin-top:10px"><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Live distance estimate</div>'+
-    '<div class="ablk"><div class="am mono">'+(d&&d.rssi!=null?d.rssi+' dBm · ~'+d.distance+' m ±'+d.uncertainty+'m':'—')+'</div></div></div>'+
+    '<div class="ablk"><div class="am mono">'+(d&&d.rssi!=null?d.rssi+' dBm · '+distText(d):'—')+'</div></div></div>'+
     '<div style="margin-top:10px"><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Honest limit</div>'+
     '<div class="ablk"><div class="am">Built-in Bluetooth can’t tell <b>direction</b> — only strength. This is a signal-strength meter, not a compass. A directional antenna (later) adds true bearing.</div></div></div>'+
     (d?('<div style="margin-top:10px"><div class="sidehd" style="color:var(--clear);margin-bottom:5px">Once you reach it</div>'+
@@ -1077,7 +1088,7 @@ function signalCaption(cid){
 function renderDeviceReadout(d){
   const rows=[];
   rows.push(["read", d.rssi!=null
-    ? ('Live signal: '+d.rssi+' dBm · est. ~'+d.distance+' m away')
+    ? ('Live signal: '+d.rssi+' dBm · '+distText(d))
     : ('No live signal — found via '+(d.method||channelName(d.channel))+', not a radio reading')]);
   rows.push(["read","Band: "+d.bandtxt+" · confidence "+d.confidence+"%"]);
   if(d.behaviortxt) rows.push(["read","Behavior: "+d.behaviortxt]);
