@@ -1,0 +1,299 @@
+"""SENTRY backend server — runs the real sensors and streams live detections.
+
+Brings up every sensor (each degrades gracefully if its hardware is absent),
+scans on a loop, fuses the results, and serves them to the UI over a local
+WebSocket. The UI connects to ws://localhost:8765; if nothing is there, the UI
+falls back to its built-in demo data, so it always works.
+
+Run:  python3 -m backend.server
+"""
+
+import asyncio
+import json
+import time
+import os
+import re
+import threading
+import http.server
+import socketserver
+import webbrowser
+
+try:
+    import websockets
+except Exception:
+    websockets = None
+
+UI_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui")
+HTTP_PORT = 8000
+
+
+def lan_ip():
+    """Best-guess LAN IP (the address other devices on your Wi-Fi use to reach
+    this laptop). No packets are sent — connect() just picks the outbound route."""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return None
+
+
+def serve_ui():
+    """Serve the UI over HTTP so a browser can load it locally."""
+    if not os.path.isdir(UI_DIR):
+        return
+    # No-store so a phone/laptop browser never serves a STALE cached index.html
+    # after we change the UI — otherwise old bugs appear "fixed on laptop but not
+    # on phone" simply because the phone cached an older page.
+    class _NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            super().end_headers()
+    handler = lambda *a, **k: _NoCacheHandler(*a, directory=UI_DIR, **k)
+    try:
+        # Threaded: each connection gets its own thread. A single-threaded server
+        # blocks forever on a browser's idle speculative/keep-alive connection,
+        # which would hang every page refresh after the first load.
+        # 0.0.0.0 = listen on ALL interfaces so other devices on your Wi-Fi
+        # (e.g. your phone) can load the UI at http://<laptop-LAN-IP>:8000
+        httpd = socketserver.ThreadingTCPServer(("0.0.0.0", HTTP_PORT), handler)
+        httpd.daemon_threads = True
+        httpd.allow_reuse_address = True
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        print(f"  UI:      http://localhost:{HTTP_PORT}   (this laptop)")
+        ip = lan_ip()
+        if ip:
+            print(f"  Phone:   http://{ip}:{HTTP_PORT}   (open this on your phone, same Wi-Fi)")
+    except OSError:
+        print(f"  (port {HTTP_PORT} busy — open ui/index.html manually)")
+
+from sentry_backend.sensors.rf import RFSensor
+from sentry_backend.sensors.wifi import WiFiSensor
+from sentry_backend.sensors.bluetooth import BLESensor
+from sentry_backend.sensors.network import NetworkSensor
+from sentry_backend import identify
+
+
+SENSORS = [RFSensor(), WiFiSensor(), BLESensor(), NetworkSensor()]
+
+# How often we refresh + push the fused state. BLE and the LAN scanner read from
+# instant caches, so we tick fast for a live feel; blocking sensors scan less
+# often via SENSOR_INTERVAL below.
+TICK_INTERVAL = 1.5
+# Per-channel minimum seconds between actual scans. 0 = read every tick (the
+# sensor self-throttles its own real work in a background thread).
+SENSOR_INTERVAL = {"bluetooth": 0.0, "network": 0.0, "wifi": 8.0, "rf": 8.0}
+
+# "New device" baseline: everything present in the first WARMUP seconds is the
+# baseline; anything appearing later is flagged NEW (hotel/Airbnb workflow).
+WARMUP_SECONDS = 25.0
+
+
+def _counter_for(category):
+    # minimal real counter-guidance (mirrors the UI's intent)
+    base = {
+        "camera": ["Get out of its line of sight.",
+                   "If it's not yours: photograph it in place, don't dismantle, report it.",
+                   "If it's your space: cut its power or block the lens."],
+        "tracker": ["Separate from the item it may be hidden in (bag, jacket, vehicle).",
+                    "Use your phone's tracker-detection to help pinpoint it.",
+                    "If you suspect stalking, preserve it and contact authorities."],
+        "audio bug": ["Stop sensitive conversations in this space.",
+                      "Locate it, then photograph and report rather than destroy.",
+                      "Sweep again after removal to confirm it's gone."],
+        "wifi attack": ["Do NOT join the duplicate network.",
+                        "Verify the real network name/BSSID with the venue.",
+                        "Use cellular data or a VPN until clear."],
+        "rogue tower": ["Treat calls/texts here as compromised.",
+                        "Move away; note where signal strength drops.",
+                        "Use encrypted apps; report if persistent."],
+    }
+    return base.get(category, ["Identify it up close.", "Locate it.", "Document before acting."])
+
+
+class Fusion:
+    """Combine sensor detections into the UI's device list, with STABLE ids.
+
+    The id is derived from channel + MAC so the same physical device keeps the
+    same id across scans — this is what lets the UI track one device as it moves
+    (radar blip stays put, the open intel drawer keeps updating) instead of the
+    list reshuffling every tick.
+    """
+    def build(self, all_dets):
+        devices = []
+        for i, d in enumerate(all_dets):
+            ui = d.to_ui(i)
+            mac = ui.get("mac") or "—"
+            if mac and mac != "—":
+                ui["id"] = d.channel + "-" + re.sub(r"[^0-9a-z]", "", mac.lower())
+            else:
+                ui["id"] = f"{d.channel}-idx{i}"
+            ui["counter"] = _counter_for(d.category)
+            devices.append(ui)
+        # sort by signal strength: strongest (closest) first; unknown RSSI last
+        def by_signal(x):
+            r = x.get("rssi")
+            return -r if isinstance(r, (int, float)) else 1e9
+        devices.sort(key=by_signal)
+        return devices
+
+
+class Station:
+    def __init__(self):
+        self.fusion = Fusion()
+        self.latest = {"devices": [], "sensors": [], "ts": 0}
+        self._cache = {}        # channel -> last list[Detection]
+        self._last_scan = {}    # channel -> ts of last actual scan
+        self._t0 = time.time()  # session start (for the NEW-device baseline)
+        self._baseline = None   # set of device ids present during warmup
+        self._seen_warmup = set()
+
+    def bring_up(self):
+        print("SENTRY backend — bringing up sensors:")
+        for s in SENSORS:
+            ok = s.start()
+            st = s.status()
+            print(f"  [{'ONLINE ' if ok else 'offline'}] {st['name']}"
+                  + (f"  ({st['error']})" if st['error'] else ""))
+        online = [s for s in SENSORS if s.status()["online"]]
+        if not online:
+            print("\n  No sensor hardware detected. The UI will use demo data.")
+            print("  Plug in an RTL-SDR / Wi-Fi / BLE adapter and re-run to go live.")
+
+    def scan_once(self):
+        """One refresh tick. Fast sensors (BLE) scan every tick; slow/blocking
+        sensors (Wi-Fi/RF) scan on their own slower interval, their results
+        cached in between so the fused feed always stays current and live."""
+        now = time.time()
+        for s in SENSORS:
+            ch = s.channel
+            # plug-and-play: re-check offline sensors in case hardware appeared.
+            if not s.status()["online"]:
+                try:
+                    if s.available():
+                        s.start()
+                except Exception:
+                    pass
+            if not s.status()["online"]:
+                self._cache[ch] = []
+                continue
+            interval = SENSOR_INTERVAL.get(ch, 8.0)
+            if (now - self._last_scan.get(ch, 0.0)) >= interval:
+                self._cache[ch] = s.safe_scan()
+                self._last_scan[ch] = now
+
+        all_dets = []
+        for ch in self._cache:
+            all_dets.extend(self._cache[ch])
+        devices = self.fusion.build(all_dets)
+
+        # NEW-device baseline: collect everything seen during warmup; after that,
+        # flag any id not in the baseline as newly-arrived. We ignore devices with
+        # randomized/private MACs (phones, many BLE devices rotate their MAC every
+        # ~15 min, so they'd always look "new" — useless for the hotel workflow).
+        ids = {d["id"] for d in devices}
+        if self._baseline is None:
+            self._seen_warmup |= ids
+            if (now - self._t0) >= WARMUP_SECONDS:
+                self._baseline = set(self._seen_warmup)
+        new_count = 0
+        for d in devices:
+            stable_mac = not identify.is_random_mac(d.get("mac", ""))
+            is_new = (self._baseline is not None and d["id"] not in self._baseline
+                      and stable_mac)
+            d["is_new"] = is_new
+            if is_new:
+                new_count += 1
+
+        self.latest = {
+            "devices": devices,
+            "sensors": [s.status() for s in SENSORS],
+            "new_count": new_count,
+            "baseline_ready": self._baseline is not None,
+            "ts": now,
+        }
+        return self.latest
+
+    def force_rescan(self):
+        """Force the throttled sensors (Wi-Fi/RF) to re-scan on the next tick —
+        backs the UI's instant REFRESH button."""
+        self._last_scan = {}
+
+    def run_scan_loop(self):
+        """Background thread: keep refreshing the fused state forever. Runs off
+        the asyncio loop so a blocking sensor scan never stalls the WS feed."""
+        while True:
+            try:
+                self.scan_once()
+            except Exception:
+                pass
+            time.sleep(TICK_INTERVAL)
+
+
+async def _serve(station):
+    async def handler(ws):
+        # push the current state immediately, then push again whenever a new
+        # scan tick produces fresh data (detected by its timestamp changing).
+        async def reader():
+            try:
+                async for msg in ws:
+                    if isinstance(msg, str) and msg.strip() == "rescan":
+                        station.force_rescan()
+            except Exception:
+                pass
+        rtask = asyncio.ensure_future(reader())
+        try:
+            await ws.send(json.dumps(station.latest))
+            last_ts = station.latest["ts"]
+            while True:
+                await asyncio.sleep(0.5)
+                if station.latest["ts"] != last_ts:
+                    await ws.send(json.dumps(station.latest))
+                    last_ts = station.latest["ts"]
+        except Exception:
+            return
+        finally:
+            rtask.cancel()
+
+    print(f"  Backend: ws://0.0.0.0:8765 (live sensor feed — reachable on your LAN)")
+    # 0.0.0.0 so the phone can reach the WebSocket feed too, not just localhost.
+    async with websockets.serve(handler, "0.0.0.0", 8765):
+        await asyncio.Future()  # run forever
+
+
+def main():
+    station = Station()
+    station.bring_up()
+    station.scan_once()
+    print("\nStarting SENTRY…")
+    serve_ui()
+    # keep refreshing the fused state in the background (off the asyncio loop).
+    threading.Thread(target=station.run_scan_loop, daemon=True,
+                     name="scan-loop").start()
+    if websockets is None:
+        print("\n(websockets not installed — run: pip install -r requirements.txt)")
+        print("The UI still runs in demo mode at the URL above.")
+        try:
+            webbrowser.open(f"http://localhost:{HTTP_PORT}")
+        except Exception:
+            pass
+        # keep the HTTP server alive
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            return
+        return
+    try:
+        webbrowser.open(f"http://localhost:{HTTP_PORT}")
+    except Exception:
+        pass
+    asyncio.run(_serve(station))
+
+
+if __name__ == "__main__":
+    main()

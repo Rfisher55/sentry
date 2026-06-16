@@ -1,0 +1,4 @@
+websockets>=12.0
+numpy>=1.24
+pyrtlsdr>=0.3.0        # RF spectrum (RTL-SDR) — optional until you have the SDR
+bleak>=0.21            # Bluetooth LE scanning — optional

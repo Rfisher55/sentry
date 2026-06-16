@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SENTRY Station</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Spline+Sans+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --slate:#0F1216;--slate2:#161A20;--slate3:#1E242C;--slate4:#272F39;
+    --line:#2A323C;--ink:#E8ECF1;--dim:#7A838F;--dimmer:#49515B;
+    --amber:#F2A93B;--clear:#3FB984;--notable:#8FA3B8;--suspect:#F2A93B;--alert:#E5564B;--cyan:#48C9E0;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;background:var(--slate);overflow:hidden}
+  body{font-family:'Archivo',system-ui,sans-serif;color:var(--ink);display:flex;flex-direction:column;height:100vh}
+  .mono{font-family:'Spline Sans Mono',monospace;font-variant-numeric:tabular-nums}
+  button{font-family:inherit}
+
+  /* title bar */
+  .bar{display:flex;align-items:center;gap:14px;padding:9px 16px;border-bottom:1px solid var(--line);background:var(--slate2);flex:none}
+  .logo{font-weight:800;letter-spacing:.32em;font-size:14px}.logo b{color:var(--amber)}
+  .tabs{display:flex;gap:3px;margin-left:6px}
+  .tab{font-size:11px;letter-spacing:.1em;font-weight:700;color:var(--dim);background:none;border:none;padding:7px 13px;border-radius:6px;cursor:pointer;text-transform:uppercase}
+  .tab.on{background:var(--slate4);color:var(--ink)}
+  .status{margin-left:auto;display:flex;gap:14px;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim);align-items:center}
+  .status b{color:var(--clear)}
+  .alertcount{color:var(--alert)!important;font-weight:700}
+  .rescan{font-family:'Spline Sans Mono';font-size:11px;letter-spacing:.08em;background:var(--amber);color:#1a1205;border:none;padding:7px 13px;border-radius:5px;font-weight:700;cursor:pointer}
+
+  .view{flex:1;overflow:hidden;display:none}.view.on{display:flex}
+
+  /* ===== SCAN ===== */
+  #scan{flex-direction:row}
+  .mappane{width:48%;border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--slate);min-width:0}
+  .ph{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex:none}
+  .ph .t{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:700}
+  .legend{margin-left:auto;display:flex;gap:9px;font-size:10px;color:var(--dim)}
+  .legend .lg{display:flex;align-items:center;gap:4px}.lgd{width:7px;height:7px;border-radius:50%}
+  .radarwrap{flex:1;display:flex;align-items:center;justify-content:center;padding:10px;min-height:0}
+  #radar{max-width:100%;max-height:100%}
+  .maphint{padding:7px 14px;font-size:10px;color:var(--dimmer);text-align:center;border-top:1px solid var(--line);line-height:1.4;flex:none}
+
+  .right{width:52%;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+  .ch{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);padding:10px 14px 6px;font-weight:700;flex:none}
+  .devlist{flex:1;overflow-y:auto}
+  .dev{padding:9px 14px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;align-items:center;gap:10px}
+  .dev:hover{background:var(--slate3)}.dev.sel{background:var(--slate3);box-shadow:inset 3px 0 0 var(--amber)}
+  .dev .sd{width:8px;height:8px;border-radius:50%;flex:none}
+  .dev.alert .sd{background:var(--alert);box-shadow:0 0 6px var(--alert)}.dev.suspect .sd{background:var(--suspect)}.dev.notable .sd{background:var(--notable)}
+  .dev .dk{font-size:13px;font-weight:700}.dev .dm{font-size:10px;color:var(--dim);margin-top:1px}
+  .dev .chip{font-family:'Spline Sans Mono';font-size:8px;letter-spacing:.06em;padding:2px 6px;border-radius:3px;background:var(--slate4);color:var(--dim);text-transform:uppercase}
+  .dev .br{margin-left:auto;font-family:'Spline Sans Mono';font-size:11px;color:var(--cyan)}
+
+  /* device detail drawer (scan tab) */
+  .drawer{flex:none;max-height:0;overflow:hidden;background:var(--slate2);border-top:1px solid var(--line);transition:max-height .2s}
+  .drawer.open{max-height:62%;overflow-y:auto}
+  .dh{padding:13px 16px 10px;border-bottom:1px solid var(--line);position:relative}
+  .dh .x{position:absolute;top:11px;right:13px;font-family:'Spline Sans Mono';font-size:10px;background:var(--slate4);color:var(--dim);border:1px solid var(--line);padding:5px 9px;border-radius:5px;cursor:pointer}
+  .dh .x:hover{background:var(--alert);color:#fff;border-color:var(--alert)}
+  .dkind{font-size:17px;font-weight:800;padding-right:60px}
+  .dconf{display:inline-flex;align-items:center;gap:7px;margin-top:6px;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)}
+  .cbar{width:74px;height:5px;background:var(--slate4);border-radius:3px;overflow:hidden}.cf{height:100%;background:var(--amber)}
+  .sec{padding:5px 16px 11px}
+  .st{font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin:11px 0 6px}
+  .box{background:var(--slate3);border-radius:7px;padding:11px;font-size:12.5px;line-height:1.5}
+  .box.danger{border:1px solid #3a1512}
+  .kv{display:flex;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}.kv .k{color:var(--dim);width:96px;flex:none;font-size:11px}.kv .v{flex:1}
+  .step{font-size:12px;padding:5px 0 5px 18px;position:relative;line-height:1.45;border-bottom:1px solid var(--line)}.step::before{content:"\\2192";position:absolute;left:0;color:var(--clear);font-weight:700}
+  .invrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .inv{font-family:'Spline Sans Mono';font-size:10px;letter-spacing:.03em;background:var(--slate4);color:var(--cyan);border:1px solid var(--line);padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700}
+  .inv:hover{border-color:var(--cyan)}
+  .locate{width:100%;margin:8px 0 2px;background:var(--cyan);color:#06222a;border:none;padding:10px;border-radius:7px;font-family:'Spline Sans Mono';font-size:12px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+
+  /* ===== TOOLS GRID ===== */
+  #tools{flex-direction:column;overflow-y:auto;padding:16px;align-items:center}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;max-width:1000px;width:100%}
+  .card{background:var(--slate2);border:1px solid var(--line);border-radius:11px;padding:14px;cursor:pointer;transition:border-color .15s}
+  .card:hover{border-color:var(--cyan)}
+  .card h3{font-size:14px;font-weight:800;display:flex;align-items:center;gap:8px}
+  .card .ic{width:8px;height:8px;border-radius:2px;background:var(--cyan);flex:none}
+  .card .cc{margin-left:auto;font-family:'Spline Sans Mono';font-size:9px;color:var(--dim);background:var(--slate4);padding:2px 6px;border-radius:3px}
+  .card p{font-size:11.5px;color:var(--dim);line-height:1.45;margin-top:7px}
+  .card .open{margin-top:9px;font-family:'Spline Sans Mono';font-size:10px;color:var(--cyan);letter-spacing:.05em}
+  .gridhd{max-width:1000px;width:100%;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:2px 2px 11px}
+
+  /* ===== CHANNELS ===== */
+  #channels{flex-direction:column;overflow-y:auto;padding:16px;align-items:center}
+  .chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;max-width:1000px;width:100%}
+  .chcard{background:var(--slate2);border:1px solid var(--line);border-radius:11px;padding:14px;cursor:pointer;transition:border-color .15s}
+  .chcard:hover{border-color:var(--cyan)}
+  .chcard .top{display:flex;align-items:center;gap:9px}
+  .chcard .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .chcard h3{font-size:14px;font-weight:800}
+  .chcard .band{margin-left:auto;font-family:'Spline Sans Mono';font-size:9px;color:var(--dim)}
+  .chcard .cnt{font-family:'Spline Sans Mono';font-size:11px;margin-top:6px}
+  .chcard p{font-size:11.5px;color:var(--dim);line-height:1.45;margin-top:6px}
+  .chcard .hw{font-size:10px;color:var(--dimmer);margin-top:7px;border-top:1px solid var(--line);padding-top:7px}
+
+  /* ===== FULLSCREEN OVERLAY (tools + locate) ===== */
+  .overlay{position:fixed;inset:0;background:var(--slate);z-index:40;display:none;flex-direction:column}
+  .overlay.on{display:flex}
+  .oh{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);background:var(--slate2);flex:none}
+  .oh h2{font-size:15px;font-weight:800}
+  .ox{margin-left:auto;font-family:'Spline Sans Mono';font-size:12px;letter-spacing:.06em;background:var(--slate4);color:var(--ink);border:1px solid var(--line);padding:8px 15px;border-radius:6px;cursor:pointer;font-weight:700}
+  .ox:hover{background:var(--alert);color:#fff;border-color:var(--alert)}
+  .obody{flex:1;overflow:hidden;display:flex;min-height:0}
+
+  /* tool split */
+  .tleft{width:48%;border-right:1px solid var(--line);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .tright{width:52%;overflow-y:auto;padding:16px;background:var(--slate2);display:flex;flex-direction:column;gap:12px;min-width:0}
+  .sidehd{font-size:10px;letter-spacing:.16em;text-transform:uppercase;font-weight:700}
+  .trow{display:flex;align-items:center;gap:9px;padding:10px 11px;background:var(--slate3);border-radius:7px;cursor:pointer;border:1px solid transparent}
+  .trow:hover{border-color:var(--line)}.trow.sel{border-color:var(--cyan);background:var(--slate4)}
+  .trow .td{width:8px;height:8px;border-radius:50%;flex:none}
+  .trow .tk{font-size:13px;font-weight:700}.trow .ts{font-size:10px;color:var(--dim);margin-top:1px;font-family:'Spline Sans Mono'}
+  .trow .tb{margin-left:auto;font-family:'Spline Sans Mono';font-size:11px;color:var(--cyan)}
+  .ablk{background:var(--slate3);border-radius:8px;padding:12px}
+  .ablk .ah{font-size:14px;font-weight:800;margin-bottom:5px}
+  .ablk .am{font-size:12.5px;line-height:1.5;color:var(--ink)}
+  .next{background:#102a1f;border:1px solid #1d4634;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.45}
+  .emptytool{color:var(--dim);font-size:12.5px;padding:18px 4px;line-height:1.6}
+  .emptytool b{color:var(--amber)}
+
+  /* live signal overlay */
+  .sigleft{width:55%;border-right:1px solid var(--line);overflow:hidden;padding:16px;display:flex;flex-direction:column;min-width:0;background:#0B0E12}
+  #sigCanvas{flex:1;width:100%;min-height:0;border-radius:8px;background:#0B0E12}
+  .sigright{width:45%;overflow-y:auto;padding:16px;background:var(--slate2);min-width:0}
+  .feedline{font-family:'Spline Sans Mono';font-size:12px;line-height:1.6;padding:5px 0;border-bottom:1px solid var(--line);opacity:0;animation:fadein .3s forwards}
+  .feedline .tag{color:var(--dim)}
+  .feedline.read{color:var(--cyan)}
+  .feedline.concl{color:var(--ink)} .feedline.concl b{color:var(--amber)}
+  .feedline.warn{color:var(--alert)}
+  /* the live signal readout updates in place every tick — never re-run the
+     fade-in there, or the panel flashes/glitches on each scan. */
+  #sigFeed .feedline{opacity:1;animation:none}
+  @keyframes fadein{to{opacity:1}}
+  @media (max-width:640px){.sigleft,.sigright{width:100%}.obody{flex-direction:column}}
+  /* locate canvas */
+  .locwrap{flex:1;display:flex;align-items:center;justify-content:center;padding:16px;width:100%}
+
+  ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--slate4);border-radius:5px}
+  @media (max-width:820px){#scan{flex-direction:column}.mappane{width:100%;height:42%;border-right:none;border-bottom:1px solid var(--line)}.right{width:100%}.tleft,.tright{width:50%}}
+  @media (max-width:560px){.obody{flex-direction:column}.tleft,.tright{width:100%;border-right:none}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  /* ---- instrument control bar (Scan view) ---- */
+  .ctrlbar{background:#0b0f14;border:1px solid var(--line);border-bottom:2px solid #11161c;padding:8px 12px;display:flex;flex-direction:column;gap:7px}
+  .ctrlrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ctrllbl{font-family:'Spline Sans Mono';font-size:9.5px;letter-spacing:.1em;color:var(--dim);min-width:96px}
+  .ctrlval{font-family:'Spline Sans Mono';font-size:11px;color:var(--cyan);min-width:64px;text-align:right}
+  .ibtn{font-family:'Spline Sans Mono';font-size:10px;letter-spacing:.06em;font-weight:700;background:#11171e;color:var(--ink);border:1px solid var(--line);padding:6px 10px;border-radius:4px;cursor:pointer}
+  .ibtn:hover{border-color:var(--cyan);color:var(--cyan)}
+  .ibtn.armed{background:var(--cyan);color:#06222a;border-color:var(--cyan)}
+  .chiptog{font-family:'Spline Sans Mono';font-size:10px;font-weight:700;background:#11171e;color:var(--dim);border:1px solid var(--line);padding:5px 9px;border-radius:4px;cursor:pointer}
+  .chiptog.on{background:#13242b;color:var(--cyan);border-color:var(--cyan)}
+  #threshSlider{flex:1;min-width:120px;accent-color:var(--cyan)}
+  .sigbar{display:inline-flex;gap:2px;align-items:flex-end;margin-left:auto;height:13px}
+  .sigseg{width:4px;border-radius:1px;background:#222a33}
+  .dev .br{margin-left:8px}
+
+  /* ===== MOBILE / TOUCH (phone) ===================================== */
+  /* Kill the 300ms tap delay + double-tap-zoom on every control. */
+  button,.tab,.dev,.trow,.card,.chcard,.chiptog,.ibtn,.inv,.ox,.locate,#radar{touch-action:manipulation}
+  /* On touch devices, don't let :hover stick a highlight after a tap. */
+  @media (hover:none){
+    .dev:hover{background:none}.card:hover,.chcard:hover{border-color:var(--line)}
+    .trow:hover{border-color:transparent}
+  }
+  @media (max-width:760px){
+    /* title bar wraps; tabs become a full-width finger-sized row */
+    .bar{flex-wrap:wrap;height:auto;gap:8px 10px;padding:8px 12px}
+    .logo{font-size:13px;letter-spacing:.2em}
+    .tabs{order:3;width:100%;margin:2px 0 0;gap:6px}
+    .tab{flex:1;text-align:center;padding:12px 6px;font-size:12px}
+    .status{font-size:10px;gap:8px}
+    .status>span:first-child{display:none}      /* hide "MONITORING LIVE" */
+    #sensorStatus{display:none}                  /* hide verbose notes up top */
+    .rescan{padding:10px 13px}
+    /* SCAN: stack map over the list; keep each pane's own scroll (stable) */
+    #scan{flex-direction:column}
+    .mappane{width:100%;height:40vh;min-height:210px;border-right:none;border-bottom:1px solid var(--line)}
+    .right{width:100%;flex:1;min-height:0}
+    .radarwrap{padding:6px}
+    .maphint{font-size:10px;padding:6px 10px;line-height:1.35}
+    /* finger-sized device rows + readable text */
+    .dev{padding:13px 14px;gap:11px}
+    .dev .dk{font-size:15px}.dev .dm{font-size:11px}
+    .dev .chip{font-size:9px;padding:3px 7px}
+    .drawer.open{max-height:74%}
+    .dkind{font-size:16px}.kv .k{width:84px}.box{font-size:13px}
+    /* control bar: label on its own line, full-width slider, big chips */
+    .ctrlbar{padding:9px 10px;gap:9px}
+    .ctrlrow{gap:9px}
+    .ctrllbl{min-width:0;flex-basis:100%}
+    #threshSlider{width:100%;min-width:0;height:30px}
+    .chiptog,.ibtn{padding:10px 12px;font-size:11px}
+    .locate,.inv,.ox{padding:12px 13px}
+    /* OVERLAYS: stack panes, let the body scroll, canvases fit width */
+    .obody{flex-direction:column;overflow-y:auto}
+    .sigleft,.sigright,.tleft,.tright{width:100%;border-right:none;border-bottom:1px solid var(--line)}
+    #sigCanvas,#locCanvas{height:230px;min-height:0}
+    .oh{flex-wrap:wrap;height:auto;gap:8px;padding:10px 12px}
+    /* tools / channels: single column */
+    .grid,.chgrid{grid-template-columns:1fr}
+    #tools,#channels{padding:12px}.am{font-size:13px}
+  }
+  @media (max-width:430px){
+    .tab{font-size:11px;letter-spacing:.03em;padding:12px 3px}
+    .mappane{height:38vh}
+    .dkind{font-size:15px}
+  }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <span class="logo">SEN<b>T</b>RY</span>
+    <div class="tabs">
+      <button class="tab on" data-tab="scan">Scan</button>
+      <button class="tab" data-tab="tools">Tools</button>
+      <button class="tab" data-tab="channels">Channels</button>
+    </div>
+    <div class="status">
+      <span>MONITORING <b>LIVE</b></span>
+      <span id="stCount">0 devices</span>
+      <span id="stAlert"></span><span id="sensorStatus" style="font-size:10px"></span>
+    </div>
+    <button class="rescan" id="rescan">RE-SCAN</button>
+  </div>
+
+  <!-- SCAN -->
+  <div class="view on" id="scan">
+    <div class="mappane">
+      <div class="ph"><span class="t">Directional Map</span>
+        <div class="legend">
+          <span class="lg"><span class="lgd" style="background:var(--alert)"></span>Alert</span>
+          <span class="lg"><span class="lgd" style="background:var(--suspect)"></span>Suspect</span>
+          <span class="lg"><span class="lgd" style="background:var(--notable)"></span>Notable</span>
+          <span class="lg"><span class="lgd" style="background:var(--clear)"></span>You</span>
+        </div>
+      </div>
+      <div class="radarwrap"><canvas id="radar" width="560" height="560"></canvas></div>
+      <div style="display:flex;gap:6px;align-items:center;margin:6px 0">
+        <button class="ox" id="zoomOut" style="padding:4px 12px">– zoom</button>
+        <button class="ox" id="zoomIn" style="padding:4px 12px">+ zoom</button>
+        <span id="zoomLbl" style="font-size:10px;color:var(--dimmer)"></span>
+      </div>
+      <div class="maphint">Click a dot to open that device. Rings = estimated distance from signal strength (live); cameras are squares; LAN devices sit on the dashed outer ring (found by IP, no RF range). Direction is NOT measured with built-in Bluetooth — angle only spreads devices apart. Use Locate for a live signal-strength meter (rising = closer).</div>
+    </div>
+    <div class="right">
+      <div class="ch" id="devHdr">Detected devices</div>
+      <div class="ctrlbar">
+        <div class="ctrlrow">
+          <button class="ibtn" id="btnRefresh">⟳ REFRESH</button>
+          <button class="ibtn" id="btnBaseline">⎙ CAPTURE BASELINE</button>
+          <button class="ibtn" id="btnNewOnly">NEW/CHANGED ONLY</button>
+        </div>
+        <div class="ctrlrow">
+          <span class="ctrllbl">SENSITIVITY (gate)</span>
+          <input type="range" id="threshSlider" min="-100" max="-30" value="-100" step="1">
+          <span class="ctrlval" id="threshVal">−100 dBm</span>
+        </div>
+        <div class="ctrlrow" id="bandChips">
+          <span class="ctrllbl">BANDS</span>
+          <button class="chiptog on" data-band="bluetooth">BLE</button>
+          <button class="chiptog on" data-band="wifi">Wi-Fi</button>
+          <button class="chiptog on" data-band="network">LAN</button>
+          <button class="chiptog on" data-band="rf">RF</button>
+        </div>
+      </div>
+      <div class="devlist" id="devlist"></div>
+      <div class="drawer" id="drawer"></div>
+    </div>
+  </div>
+
+  <!-- TOOLS -->
+  <div class="view" id="tools">
+    <div class="gridhd">Counter-surveillance tools · tap to open</div>
+    <div class="grid" id="toolgrid"></div>
+  </div>
+
+  <!-- CHANNELS -->
+  <div class="view" id="channels">
+    <div class="gridhd">Detection channels · what the station is sensing</div>
+    <div class="chgrid" id="chgrid"></div>
+  </div>
+
+  <!-- TOOL OVERLAY -->
+  <div class="overlay" id="toolOverlay">
+    <div class="oh"><h2 id="toolTitle">Tool</h2><button class="ox" id="toolExit">✕ EXIT</button></div>
+    <div class="obody" id="toolBody"></div>
+  </div>
+
+  <!-- LOCATE OVERLAY -->
+  <div class="overlay" id="locOverlay">
+    <div class="oh"><h2 id="locTitle">Locate</h2>
+      <span id="locSub" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)"></span>
+      <button class="ox" id="locTone" style="margin-left:auto">🔇 TONE OFF</button>
+      <button class="ox" id="locExit">✕ EXIT</button></div>
+    <div class="obody">
+      <div class="sigleft">
+        <div class="sidehd" style="color:var(--cyan);margin-bottom:8px">◉ NEAR-FIELD SIGNAL METER — more segments = closer</div>
+        <canvas id="locCanvas" width="640" height="420"></canvas>
+        <div id="locCaption" style="font-size:10.5px;color:var(--dimmer);margin-top:8px;line-height:1.4">Proximity meter from live RSSI: walk a few steps and watch the bar — more segments / higher % / faster tone means you're getting closer. This is signal strength, not direction; true bearing needs the directional antenna.</div>
+      </div>
+      <div class="sigright">
+        <div class="sidehd" style="color:var(--amber);margin-bottom:8px">✦ GUIDANCE — walking you in</div>
+        <div id="locReadout"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE SIGNAL OVERLAY -->
+  <div class="overlay" id="sigOverlay">
+    <div class="oh"><h2 id="sigTitle">Live Signal</h2>
+      <span id="sigSub" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)"></span>
+      <button class="ox" id="sigExit">✕ EXIT</button></div>
+    <div class="obody">
+      <div class="sigleft">
+        <div class="sidehd" style="color:var(--cyan);margin-bottom:8px">◉ LIVE SIGNAL — what the antenna is receiving</div>
+        <canvas id="sigCanvas" width="640" height="420"></canvas>
+        <div id="sigCaption" style="font-size:10.5px;color:var(--dimmer);margin-top:8px;line-height:1.4"></div>
+      </div>
+      <div class="sigright" id="sigAI">
+        <div class="sidehd" style="color:var(--amber);margin-bottom:8px">✦ AI READING — real-time analysis</div>
+        <div id="sigFeed"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+const B = {"channels": [{"id": "rf", "name": "RF Spectrum", "band": "10 MHz – 6 GHz", "catches": "Any radio transmitter: analog video, wireless mics, telemetry, unknown carriers", "hw": "Wideband SDR (HackRF/RTL-SDR) + wideband antenna"}, {"id": "wifi", "name": "Wi-Fi", "band": "2.4 / 5 / 6 GHz", "catches": "IP cameras, hidden SSIDs, evil-twin & deauth attacks, rogue APs", "hw": "Wi-Fi NIC in monitor mode"}, {"id": "bluetooth", "name": "Bluetooth / BLE", "band": "2.4 GHz", "catches": "Item-trackers (AirTag/Tile), BLE bugs, beacons, wearables", "hw": "BLE-capable radio"}, {"id": "cellular", "name": "Cellular", "band": "GSM/LTE/5G", "catches": "IMSI catchers / fake towers, GSM bugs, live GPS trackers calling out", "hw": "Cellular modem + SDR for tower survey"}, {"id": "nfc", "name": "NFC / RFID", "band": "13.56 MHz / 125 kHz", "catches": "Skimmers, cloners, covert RFID tags, access-card readers", "hw": "PN532 NFC module"}, {"id": "ir", "name": "Infrared", "band": "Optical IR", "catches": "Camera night-vision IR LEDs, IR data links, IR motion sensors", "hw": "IR photodiode + IR camera"}, {"id": "acoustic", "name": "Acoustic / Ultrasonic", "band": "20 Hz – 96 kHz", "catches": "Ultrasonic cross-device tracking beacons, microphone leakage, hidden speakers", "hw": "Ultrasonic MEMS mic"}, {"id": "emf", "name": "EMF / Magnetic", "band": "DC – low RF", "catches": "Wired bugs, hidden powered electronics, magnetically-attached trackers", "hw": "Magnetometer + EMF coil probe"}, {"id": "optical", "name": "Optical Lens", "band": "Visible retroreflection", "catches": "Any camera lens in line of sight — including offline/recording-only", "hw": "LED ring + camera"}, {"id": "thermal", "name": "Thermal", "band": "LWIR", "catches": "Powered hidden electronics by their heat signature", "hw": "Thermal camera module (e.g. MLX90640 / FLIR Lepton)"}, {"id": "gnss", "name": "GNSS Integrity", "band": "GPS/GLONASS/Galileo", "catches": "GPS jamming and spoofing affecting you or a planted tracker", "hw": "GNSS receiver"}, {"id": "power", "name": "Mains / Power-line", "band": "Powerline carrier", "catches": "Devices drawing/communicating over building power, power-line bugs", "hw": "Isolated power-line coupler"}], "tools": [{"id": "spectrum", "name": "RF Spectrum Analyzer", "channel": "rf", "what": "Live waterfall of all radio energy 10 MHz–6 GHz. The primary bug-hunting view — see every transmitter as a trace, watch it over time.", "catches": "Any active RF transmitter", "limits": "Can't see a non-transmitting device; hoppers need the Burst Catcher."}, {"id": "rfbaseline", "name": "RF Baseline & Change", "channel": "rf", "what": "Capture the room's normal RF fingerprint, then flag anything NEW. The core sit-down-and-watch workflow.", "catches": "Newly-activated or newly-arrived transmitters", "limits": "Something already transmitting when you arrived reads as 'normal'."}, {"id": "burst", "name": "Burst & Anomaly Catcher", "channel": "rf", "what": "Long-dwell capture for evasive devices that hop frequencies or transmit in short infrequent bursts to beat a quick sweep.", "catches": "Burst transmitters, frequency-hoppers", "limits": "Needs patience — minutes to catch a slow-cadence device."}, {"id": "wifi", "name": "Wi-Fi Hunter", "channel": "wifi", "what": "Enumerate every Wi-Fi device and network — vendor, signal, hidden SSIDs, and attack signatures (evil-twin, deauth).", "catches": "IP cameras, rogue APs, deauth/evil-twin attacks", "limits": "A device with Wi-Fi off won't appear; MACs can be randomized."}, {"id": "ble", "name": "Bluetooth / BLE Hunter", "channel": "bluetooth", "what": "Find every Bluetooth device in range and flag the ones that behave like trackers or bugs — including a tag that follows you.", "catches": "AirTag-class trackers, BLE bugs, beacons", "limits": "Powered-off or rotating-ID trackers can slip a single scan."}, {"id": "imsi", "name": "Cellular / IMSI-Catcher Detector", "channel": "cellular", "what": "Survey nearby cell towers and flag fake base stations (IMSI catchers/stingrays) and unexplained periodic uplinks from bugs or trackers.", "catches": "Rogue towers, GSM bugs, live trackers", "limits": "A silently-logging tracker that doesn't transmit emits nothing."}, {"id": "nfc", "name": "NFC / RFID Reader", "channel": "nfc", "what": "Read what your own cards and tags publicly announce, and detect skimmers or covert RFID readers nearby.", "catches": "Card type/ID, skimmers, covert readers", "limits": "Reads public data only; won't clone or emulate credentials."}, {"id": "ir", "name": "Infrared Explorer", "channel": "ir", "what": "Detect the IR LEDs cameras use for night vision (invisible to the eye), decode IR remotes, and learn/transmit to your own IR gear.", "catches": "Night-vision camera IR, IR data links", "limits": "Needs line of sight; daylight/heat sources add noise."}, {"id": "acoustic", "name": "Acoustic / Ultrasonic Detector", "channel": "acoustic", "what": "Listen across the audible and ultrasonic range for cross-device tracking beacons and the faint electronic noise of hidden mics/speakers.", "catches": "Ultrasonic beacons, some active mics", "limits": "A passive recorder makes no sound — undetectable acoustically."}, {"id": "emf", "name": "EMF / Magnetic Probe", "channel": "emf", "what": "Sweep surfaces for electromagnetic and magnetic anomalies — wired bugs, hidden powered electronics, magnet-mounted trackers.", "catches": "Wired/powered hidden devices, magnetic trackers", "limits": "Reacts to all electronics and wiring — needs physical confirmation."}, {"id": "lens", "name": "Optical Lens Finder", "channel": "optical", "what": "Find camera lenses by retroreflection — the only method that catches a camera recording locally with its radio OFF.", "catches": "Any lens in sight, including fully offline cameras", "limits": "Needs line of sight; glass/screens glint too — verify each."}, {"id": "thermal", "name": "Thermal Inspection", "channel": "thermal", "what": "Heat-map surfaces to find powered electronics hidden in fixtures or walls by the warmth they give off.", "catches": "Powered hidden devices", "limits": "Misses cold/idle devices; sun and HVAC cause false warm spots."}, {"id": "nljd", "name": "Offline-Electronics Detector", "channel": "emf", "what": "The NLJD principle: illuminate a surface and watch for the harmonic re-radiation of semiconductor junctions — reveals electronics even powered OFF.", "catches": "Hidden cameras/mics/recorders, on or off", "limits": "Needs dedicated NLJD hardware; reacts to all electronics — confirm physically."}, {"id": "gnss", "name": "GNSS Integrity Monitor", "channel": "gnss", "what": "Watch your GPS fix for jamming or spoofing — sudden loss, impossible jumps, or mismatched time that signal a location attack.", "catches": "GPS jamming/spoofing", "limits": "Confirms an attack on positioning, not who's doing it."}, {"id": "network", "name": "Network Traffic Analyzer", "channel": "wifi", "what": "On a network you're authorized on, map every device and watch traffic volumes/destinations to spot a camera streaming out or data exfiltration.", "catches": "Streaming cameras, exfiltration patterns", "limits": "Can't read encrypted CONTENT — only volume, timing, and destination."}, {"id": "power", "name": "Mains / Power-line Analyzer", "channel": "power", "what": "Inspect building power for devices that draw from or communicate over the mains — power-line bugs and always-on hidden electronics.", "catches": "Power-line-coupled devices", "limits": "Needs an isolated coupler; mains noise is busy — interpret carefully."}, {"id": "df", "name": "Direction Finder", "channel": "rf", "what": "Turn any detection into a bearing and walk you to it — sweep with a directional antenna or, upgraded, instant electronic AoA from a coherent array.", "catches": "The physical location of any active emitter", "limits": "Sweep mode is manual; precise fixes need 2+ positions or an array."}, {"id": "gpio", "name": "GPIO Hardware Lab", "channel": "emf", "what": "Drive sensors, read pins, and prototype with the onboard GPIO — extend the box with your own probes and detectors.", "catches": "Whatever you wire up", "limits": "Bench tool — not a turnkey detector."}], "devices": [{"id": "dev0", "kind": "Wi-Fi IP camera", "channel": "wifi", "severity": "alert", "category": "camera", "name": "DS-2CD", "maker": "Hangzhou Hikvision", "model": "DS-2CD", "mac": "44:19:B6:1C:2E:2B", "ident": "802.11n · RTSP:554", "bandtxt": "2.4 GHz", "locnote": "move & re-scan to tighten", "surveilling": "Video + on-board mic audio of its cone", "cancapture": "1080p H.264 + audio, pushed to its recorder — in-frame is already stored", "behaviortxt": "2.4 GHz ch.6 · −48 dBm (strong) · 2.8 Mbps up · always on", "capturingnow": "Streaming video off-site now", "confidence": 85, "bearing": -93, "distance": 8.9, "uncertainty": 2.0, "counter": ["Get out of its line of sight — note where it points and sit/stand outside that cone.", "If it's yours or you control the space, cover the lens (tape, a cup) or unplug/power it.", "If it's in a rental/hotel and not yours, photograph it in place, then contact the property and/or police — do not assume you may dismantle someone else's device.", "Assume anything said or done in view was already captured; act accordingly."], "device_type": "IP camera", "method": "Wi-Fi 2.4 GHz"}, {"id": "dev1", "kind": "Analog wireless camera", "channel": "rf", "severity": "suspect", "category": "camera", "name": "5.8 GHz Tx", "maker": "Not announced", "model": "5.8 GHz Tx", "mac": "—", "ident": "5.8 GHz analog FM video", "bandtxt": "5.8 GHz", "locnote": "sweep antenna for the peak", "surveilling": "Video of its cone", "cancapture": "Analog video ~25 fps, unencrypted — anyone on the channel can watch", "behaviortxt": "5.8 GHz fixed ch · ~15 mW constant carrier", "capturingnow": "Broadcasting live video on 5.8 GHz", "confidence": 81, "bearing": -51, "distance": 7.6, "uncertainty": 1.9, "counter": ["Get out of its line of sight — note where it points and sit/stand outside that cone.", "If it's yours or you control the space, cover the lens (tape, a cup) or unplug/power it.", "If it's in a rental/hotel and not yours, photograph it in place, then contact the property and/or police — do not assume you may dismantle someone else's device.", "Assume anything said or done in view was already captured; act accordingly."], "device_type": "Wireless camera (analog video)", "method": "RF · 5.8 GHz"}, {"id": "dev2", "kind": "Offline pinhole camera", "channel": "optical", "severity": "suspect", "category": "camera", "name": "SD-card DVR", "maker": "Not announced", "model": "SD-card DVR", "mac": "—", "ident": "no RF · lens glint only", "bandtxt": "—", "locnote": "glint seen at this bearing — inspect by eye", "surveilling": "Video of its cone", "cancapture": "1080p to a microSD card — retrieved physically, not transmitted", "behaviortxt": "silent on all radio · found only by its lens", "capturingnow": "Likely recording to its card right now", "confidence": 72, "bearing": 41, "distance": 7.9, "uncertainty": 2.3, "counter": ["Get out of its line of sight — note where it points and sit/stand outside that cone.", "If it's yours or you control the space, cover the lens (tape, a cup) or unplug/power it.", "If it's in a rental/hotel and not yours, photograph it in place, then contact the property and/or police — do not assume you may dismantle someone else's device.", "Assume anything said or done in view was already captured; act accordingly."], "device_type": "Pinhole camera (offline)", "method": "Optical · lens glint"}, {"id": "dev3", "kind": "GSM audio bug", "channel": "cellular", "severity": "alert", "category": "audio bug", "name": "SIM bug", "maker": "Not announced", "model": "SIM bug", "mac": "—", "ident": "GSM 1800 uplink burst", "bandtxt": "1800 MHz", "locnote": "strongest during a burst", "surveilling": "Room audio", "cancapture": "Live room audio over a voice call to a remote number", "behaviortxt": "~0.5 s uplink burst every few sec · auto-answer SIM", "capturingnow": "Sending room audio out over cellular", "confidence": 94, "bearing": 11, "distance": 6.9, "uncertainty": 1.5, "counter": ["Move sensitive conversations elsewhere — outside, or to a different room, ideally with background noise.", "Locate it (use Locate mode) so you can identify and physically remove or disable it if it's in your own space.", "If planted in a space that isn't yours, document its location and escalate rather than handling it yourself.", "Until located, treat the room as compromised for anything spoken."], "device_type": "Room-audio bug", "method": "Cellular · GSM 1800"}, {"id": "dev4", "kind": "BLE listening device", "channel": "bluetooth", "severity": "suspect", "category": "audio bug", "name": "ESP32 mic", "maker": "Espressif", "model": "ESP32 mic", "mac": "24:6F:28:89:12:0E", "ident": "BLE · audio GATT", "bandtxt": "2.4 GHz", "locnote": "RSSI rises as you near it", "surveilling": "Room audio", "cancapture": "Compressed audio over BLE to a receiver within ~10 m", "behaviortxt": "BLE advert ~100 ms · no display, no clear purpose", "capturingnow": "Advertising as a no-name mic device", "confidence": 85, "bearing": 59, "distance": 10.8, "uncertainty": 2.6, "counter": ["Move sensitive conversations elsewhere — outside, or to a different room, ideally with background noise.", "Locate it (use Locate mode) so you can identify and physically remove or disable it if it's in your own space.", "If planted in a space that isn't yours, document its location and escalate rather than handling it yourself.", "Until located, treat the room as compromised for anything spoken."], "device_type": "Listening device (mic)", "method": "Bluetooth LE"}, {"id": "dev5", "kind": "Voice recorder", "channel": "emf", "severity": "notable", "category": "audio bug", "name": "flash recorder", "maker": "Not announced", "model": "flash recorder", "mac": "—", "ident": "EMF only · no transmit", "bandtxt": "—", "locnote": "EMF probe rises over the device", "surveilling": "Room audio", "cancapture": "Audio to internal flash — pulled off later by hand, never transmitted", "behaviortxt": "no radio at all · only its running electronics leak EMF", "capturingnow": "Recording locally — silent on every radio", "confidence": 89, "bearing": 90, "distance": 3.1, "uncertainty": 0.9, "counter": ["Move sensitive conversations elsewhere — outside, or to a different room, ideally with background noise.", "Locate it (use Locate mode) so you can identify and physically remove or disable it if it's in your own space.", "If planted in a space that isn't yours, document its location and escalate rather than handling it yourself.", "Until located, treat the room as compromised for anything spoken."], "device_type": "Voice recorder", "method": "EMF · passive"}, {"id": "dev6", "kind": "Item-tracker (following you)", "channel": "bluetooth", "severity": "alert", "category": "tracker", "name": "AirTag", "maker": "Apple", "model": "AirTag", "mac": "rotating BLE", "ident": "Apple Find My beacon", "bandtxt": "2.4 GHz + UWB", "locnote": "in a bag/pocket/vehicle near you", "surveilling": "Your location, continuously", "cancapture": "Position via the Find My network — visible to whoever paired it", "behaviortxt": "Find My advert ~2 s · ID rotates · keeps reappearing as you move", "capturingnow": "Reporting your location — and traveling with you", "confidence": 76, "bearing": -167, "distance": 3.3, "uncertainty": 0.9, "counter": ["Use Locate mode and your phone's built-in tracker-detection to find the tag.", "Check bags, jacket linings, vehicle, and recently received gifts.", "Separate yourself from it; report a stalking tag to police and the tag's platform."], "device_type": "Item tracker (Apple Find My)", "method": "Bluetooth LE"}, {"id": "dev7", "kind": "Live GPS tracker", "channel": "cellular", "severity": "suspect", "category": "GPS tracker", "name": "LTE-M tag", "maker": "Not announced", "model": "LTE-M tag", "mac": "—", "ident": "LTE-M periodic uplink", "bandtxt": "LTE b12/13", "locnote": "check vehicle exterior / wheel wells / bag", "surveilling": "Your location over time", "cancapture": "GPS fixes uploaded on a timer to whoever owns it", "behaviortxt": "wakes ~30–60 s · short location packet · sleeps", "capturingnow": "Logging and reporting your position on a timer", "confidence": 94, "bearing": 82, "distance": 5.1, "uncertainty": 1.7, "counter": ["Use Locate mode to find it — check bags, vehicle exterior/wheel wells, items recently given to you.", "Once found, you can stop carrying it, leave it behind, or (if on your vehicle) remove it.", "If you believe you're being stalked, document it and involve police — a planted tracker is often a crime.", "Moving away from the tracked item breaks the tracking immediately."], "device_type": "GPS tracker", "method": "Cellular · LTE-M"}, {"id": "dev8", "kind": "IMSI catcher (fake tower)", "channel": "cellular", "severity": "alert", "category": "rogue tower", "name": "cell-site sim", "maker": "Not announced", "model": "cell-site sim", "mac": "—", "ident": "abnormal cell ID · forces 2G", "bandtxt": "GSM/LTE", "locnote": "strongest toward the source — leave that direction", "surveilling": "Every phone in range, incl. yours", "cancapture": "Your IMSI, location, metadata; downgrades you for interception", "behaviortxt": "poses as strongest tower · mismatched cell ID · pushes phones to insecure 2G", "capturingnow": "Impersonating a tower to grab nearby phones", "confidence": 73, "bearing": 49, "distance": 9.5, "uncertainty": 2.2, "counter": ["Use Locate mode to find its source and identify it up close.", "Limit sensitive activity nearby until you know what it is.", "Re-scan over time — behavior reveals purpose."], "device_type": "IMSI catcher (fake tower)", "method": "Cellular"}, {"id": "dev9", "kind": "Evil-twin access point", "channel": "wifi", "severity": "alert", "category": "wifi attack", "name": "rogue AP", "maker": "spoofed", "model": "rogue AP", "mac": "clones a real BSSID", "ident": "duplicate SSID · louder", "bandtxt": "2.4 GHz", "locnote": "between you and the real router", "surveilling": "Your traffic — if you connect", "cancapture": "Unencrypted traffic, login pages, DNS if you join it", "behaviortxt": "same name as the real Wi-Fi · different BSSID · stronger signal — a MITM lure", "capturingnow": "Waiting for you to join so it can intercept", "confidence": 85, "bearing": 124, "distance": 5.0, "uncertainty": 2.8, "counter": ["Use Locate mode to find its source and identify it up close.", "Limit sensitive activity nearby until you know what it is.", "Re-scan over time — behavior reveals purpose."], "device_type": "Evil-twin access point", "method": "Wi-Fi 2.4 GHz"}, {"id": "dev10", "kind": "Unidentified transmitter", "channel": "rf", "severity": "suspect", "category": "unknown transmitter", "name": "—", "maker": "Not announced", "model": "—", "mac": "—", "ident": "433.92 MHz OOK burst", "bandtxt": "433 MHz", "locnote": "sweep to find the source", "surveilling": "Unknown — purpose unconfirmed", "cancapture": "Unknown until identified up close", "behaviortxt": "short OOK bursts on 433.92 — sensor, remote, or cheap bug", "capturingnow": "Transmitting an unidentified 433 MHz signal", "confidence": 90, "bearing": -97, "distance": 11.0, "uncertainty": 1.4, "counter": ["Use Locate mode to find its source and identify it up close.", "Limit sensitive activity nearby until you know what it is.", "Re-scan over time — behavior reveals purpose."], "device_type": "Unknown transmitter", "method": "RF · 433 MHz"}, {"id": "dev11", "kind": "Ultrasonic beacon", "channel": "acoustic", "severity": "notable", "category": "tracker", "name": "audio beacon", "maker": "Not announced", "model": "audio beacon", "mac": "—", "ident": "~19 kHz tone pattern", "bandtxt": "near-ultrasonic", "locnote": "toward the loudest ~19 kHz source", "surveilling": "Links your devices across apps", "cancapture": "Emits an inaudible ID nearby phone apps can hear to cross-track you", "behaviortxt": "repeating ~19 kHz chirp just above hearing", "capturingnow": "Emitting an inaudible ID to cross-track your devices", "confidence": 91, "bearing": 156, "distance": 6.8, "uncertainty": 1.6, "counter": ["Use Locate mode and your phone's built-in tracker-detection to find the tag.", "Check bags, jacket linings, vehicle, and recently received gifts.", "Separate yourself from it; report a stalking tag to police and the tag's platform."], "device_type": "Ultrasonic tracking beacon", "method": "Acoustic · ultrasonic"}, {"id": "dev12", "kind": "Covert RFID reader", "channel": "nfc", "severity": "suspect", "category": "skimmer", "name": "long-range reader", "maker": "Not announced", "model": "long-range reader", "mac": "—", "ident": "13.56 MHz field · high power", "bandtxt": "13.56 MHz", "locnote": "where the field reads strongest", "surveilling": "Cards brought near it", "cancapture": "Card UID and any unprotected sectors of a card within range", "behaviortxt": "13.56 MHz field stronger than a normal reader — built to skim at range", "capturingnow": "Powering a field that could skim a nearby card", "confidence": 93, "bearing": 77, "distance": 6.7, "uncertainty": 2.3, "counter": ["Use Locate mode to find its source and identify it up close.", "Limit sensitive activity nearby until you know what it is.", "Re-scan over time — behavior reveals purpose."], "device_type": "RFID skimmer / reader", "method": "NFC/RFID · 13.56 MHz"}, {"id": "dev13", "kind": "IR night-vision camera", "channel": "ir", "severity": "suspect", "category": "camera", "name": "IR cam", "maker": "Not announced", "model": "IR cam", "mac": "—", "ident": "850 nm IR LED array", "bandtxt": "850 nm IR", "locnote": "IR glow points back to it (use a phone cam)", "surveilling": "Video, even in total darkness", "cancapture": "Video with active IR — sees you in the dark", "behaviortxt": "850 nm IR · faint purple glow to a phone camera, invisible to the eye", "capturingnow": "Lighting the room with invisible IR to record in the dark", "confidence": 91, "bearing": 57, "distance": 5.0, "uncertainty": 2.2, "counter": ["Get out of its line of sight — note where it points and sit/stand outside that cone.", "If it's yours or you control the space, cover the lens (tape, a cup) or unplug/power it.", "If it's in a rental/hotel and not yours, photograph it in place, then contact the property and/or police — do not assume you may dismantle someone else's device.", "Assume anything said or done in view was already captured; act accordingly."], "device_type": "Night-vision camera", "method": "Infrared · 850 nm"}], "chanCounts": {"wifi": 2, "rf": 2, "optical": 1, "cellular": 3, "bluetooth": 2, "emf": 1, "acoustic": 1, "nfc": 1, "ir": 1}};
+const $ = id => document.getElementById(id);
+const setTxt = (id,t)=>{const e=$(id); if(e) e.textContent=t;};
+const SEVC = {alert:'#E5564B',suspect:'#F2A93B',notable:'#8FA3B8'};
+const SEVRANK = {alert:3,suspect:2,notable:1};
+// Phone / small-screen detection — lighten animation and grow tap targets.
+const IS_SMALL = (window.matchMedia && window.matchMedia('(max-width:760px)').matches)
+                 || (window.innerWidth||9999) <= 760;
+const RADAR_STEP = IS_SMALL ? 2.6 : 1.1;   // bigger angular step per frame…
+const RADAR_FPS  = IS_SMALL ? 20  : 60;    // …at fewer FPS = same sweep speed, far less work
+const SIG_FPS    = IS_SMALL ? 20  : 60;    // throttle the signal canvas redraw on phones
+let selectedDev = null;
+let locRAF = null;
+
+// ---------- LIVE DEVICE ROSTER (client-side persistence + stable order) ------
+// The backend keeps a device for 45s after its last advert; on top of that we
+// keep a client roster so a device NEVER disappears from view for a transient
+// one-frame gap, and so list order stays STABLE (first-seen order) instead of
+// reshuffling every tick. Selected device is pinned and never evicted.
+const ROSTER_GRACE_MS = 25000;   // keep showing a device this long after last report
+const STALE_MS        = 4000;    // not reported in this long ⇒ render it as "fading"
+const roster = new Map();        // id -> {dev, firstSeen, lastSeen, slot}
+let rosterSlot = 0;
+
+// ---- survey controls (pro TSCM): sensitivity gate, band filter, baseline ----
+let gThreshold = -100;                                  // dBm gate; -100 = show all
+let gBands = new Set(['bluetooth','wifi','network','rf']);
+let gNewOnly = false;
+let gBaseline = null;                                   // id -> rssi snapshot
+function smoothOf(id){ const r=roster.get(id); return r?(r.smooth):null; }
+function isNewOrChanged(d){
+  if(gBaseline){
+    if(!gBaseline.has(d.id)) return true;               // not in baseline → NEW
+    const b=gBaseline.get(d.id), s=smoothOf(d.id);
+    return (b!=null && s!=null && Math.abs(s-b)>6);     // moved ≥6 dB → CHANGED
+  }
+  return !!d.is_new;                                    // fall back to server baseline
+}
+function passesFilters(d){
+  if(!gBands.has(d.channel)) return false;
+  if(gThreshold>-100 && !(d.rssi==null || d.rssi>=gThreshold)) return false;
+  if(gNewOnly && !isNewOrChanged(d)) return false;
+  return true;
+}
+
+function applyLive(devices){
+  const now = Date.now();
+  const fresh = devices.filter(d=>!roster.has(d.id));
+  fresh.forEach(d=>roster.set(d.id,{dev:d,firstSeen:now,lastSeen:now,slot:rosterSlot++,smooth:(d.rssi??null)}));
+  devices.forEach(d=>{
+    const r=roster.get(d.id);
+    if(r){
+      r.dev=d; r.lastSeen=now;
+      if(d.rssi!=null) r.smooth = (r.smooth==null) ? d.rssi : r.smooth*0.7 + d.rssi*0.3; // EMA
+    }
+  });
+  // evict only after the grace period — and never the device you're looking at
+  for(const [id,r] of roster){
+    if(id!==selectedDev && (now-r.lastSeen)>ROSTER_GRACE_MS) roster.delete(id);
+  }
+  // Sort by SIGNAL (closest first) but in coarse 4 dB buckets, tie-broken by
+  // first-seen slot — so standing still never reshuffles the list (noise stays
+  // inside a bucket), while real movement re-ranks gradually. No-RSSI devices
+  // (LAN-only) sort to the bottom.
+  const list=[...roster.values()];
+  list.forEach(r=>{ r.dev._stale=(now-r.lastSeen)>STALE_MS; r.dev._ageMs=now-r.lastSeen; });
+  list.sort((a,b)=>{
+    const ba=a.smooth==null?-999:Math.round(a.smooth/4), bb=b.smooth==null?-999:Math.round(b.smooth/4);
+    if(bb!==ba) return bb-ba;          // higher (closer) signal bucket first
+    return a.slot-b.slot;              // stable within a bucket
+  });
+  B.devices = list.map(r=>r.dev);
+}
+
+// ---------- TABS ----------
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===t));
+    document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id===t.dataset.tab));
+    if(t.dataset.tab==='scan'){startRadar();}else{stopRadar();}
+  };
+});
+
+// ---------- STATUS ----------
+function refreshStatus(){
+  const n=B.devices.length;
+  const a=B.devices.filter(d=>d.severity==='alert').length;
+  $('stCount').textContent=n+' device'+(n===1?'':'s');
+  $('stAlert').innerHTML=a?('<span class="alertcount">⚠ '+a+' ALERT</span>'):'';
+}
+
+// ---------- SCAN: device list ----------
+const devRows = new Map();   // device id -> row element (kept stable across ticks)
+
+function buildDevRow(d){
+  const el=document.createElement('div');
+  el.className='dev '+d.severity;
+  el.dataset.id=d.id;
+  el.innerHTML=
+    '<span class="sd"></span>'+
+    '<div><div class="dk"></div>'+
+      '<div class="dm"></div>'+
+      '<div class="dm mono macline" style="font-size:10px;color:var(--dimmer)"></div></div>'+
+    '<span class="chip"></span>'+
+    '<span class="sigbar"></span>'+
+    '<span class="br"></span>';
+  el.onclick=()=>selectDevice(d.id);   // bound to stable id — survives data updates
+  return el;
+}
+// 5-segment mini bar-graph of signal strength for a list row
+function miniBar(rssi){
+  if(rssi==null) return '';
+  const lvl=Math.round(rssiToStrength(rssi)*5);
+  let h='';
+  for(let i=0;i<5;i++){
+    const on=i<lvl, c=i<3?'#3FB984':i<4?'#F2A93B':'#E5564B';
+    h+='<span class="sigseg" style="height:'+(5+i*2)+'px;background:'+(on?c:'#222a33')+'"></span>';
+  }
+  return h;
+}
+// detection-method display: short chip + full label (kept SEPARATE from type)
+function methodShort(d){
+  const m=(d.method||'').toLowerCase();
+  if(m.includes('5 ghz'))return'Wi-Fi 5G'; if(m.includes('6 ghz'))return'Wi-Fi 6G';
+  if(m.includes('2.4'))return'Wi-Fi 2.4G'; if(m.startsWith('wi-fi'))return'Wi-Fi';
+  if(m.includes('lan')||m.includes('network'))return'LAN'; if(m.includes('bluetooth'))return'BLE';
+  if(m.startsWith('rf'))return'RF'; return channelName(d.channel);
+}
+function devTitle(d){ return d.device_type||d.kind; }
+function devName(d){ return (d.model&&d.model!=='—'&&d.model!==devTitle(d))?d.model:''; }
+function updateDevRow(row,d){
+  const isCam=d.category==='camera';
+  row.className='dev '+d.severity+(d._stale?' stale':'')+(d.id===selectedDev?' sel':'');
+  row.style.opacity=d._stale?'0.5':'1';
+  row.style.borderLeft=isNewOrChanged(d)?'3px solid var(--clear)':'3px solid transparent';
+  const dk=row.querySelector('.dk');
+  dk.textContent=(isCam?'📷 ':'')+devTitle(d);
+  if(d.is_new){const b=document.createElement('span');b.textContent=' NEW';
+    b.style.cssText='color:#06222a;background:var(--clear);font-size:9px;font-weight:700;padding:1px 4px;border-radius:4px;margin-left:5px';dk.appendChild(b);}
+  const nm=devName(d);
+  row.querySelector('.dm').textContent='via '+(d.method||channelName(d.channel))
+    +(nm?' · "'+nm+'"':'')+(d.maker&&d.maker!=='Not announced'?' · '+d.maker:'');
+  row.querySelector('.macline').textContent=d.mac+(d.rssi!=null?' · '+d.rssi+' dBm':'')+(d.ip?' · '+d.ip:'')
+    +(d._stale?' · last heard '+Math.round(d._ageMs/1000)+'s ago':'');
+  row.querySelector('.chip').textContent=methodShort(d);
+  row.querySelector('.sigbar').innerHTML=miniBar(d.rssi);
+  row.querySelector('.br').textContent=(d.rssi!=null&&d.distance!=null?'~'+d.distance+'m':(d.ip?'LAN':'—'));
+}
+// in-place reconcile: add new rows, update existing, remove gone — NEVER rebuild
+// the whole list, so hover/clicks/scroll stay stable.
+function syncDevList(){
+  const listEl=$('devlist');
+  const vis=B.devices.filter(d=>passesFilters(d)||d.id===selectedDev);
+  const present=new Set(vis.map(d=>d.id));
+  for(const [id,row] of devRows){ if(!present.has(id)){ row.remove(); devRows.delete(id); } }
+  let prev=null;
+  vis.forEach(d=>{
+    let row=devRows.get(d.id);
+    if(!row){ row=buildDevRow(d); devRows.set(d.id,row); }
+    updateDevRow(row,d);
+    const want = prev ? prev.nextSibling : listEl.firstChild;
+    if(want!==row) listEl.insertBefore(row, prev?prev.nextSibling:listEl.firstChild);
+    prev=row;
+  });
+  const total=B.devices.length, shown=vis.length;
+  $('devHdr').textContent='Detected devices · '+shown+(shown!==total?' / '+total:'')
+    +(gNewOnly?' (new/changed)':'');
+}
+// full reset (used for initial/demo render and tab/rescan); then defer to sync
+function renderDevList(){
+  $('devlist').innerHTML=''; devRows.clear();
+  syncDevList();
+}
+function channelName(cid){const c=B.channels.find(x=>x.id===cid);if(c)return c.name.split(' ')[0];return ({network:'Network',bluetooth:'Bluetooth',wifi:'Wi-Fi',rf:'RF'})[cid]||cid;}
+function sign(n){return (n>0?'+':'')+n;}
+
+function selectDevice(id){
+  selectedDev=id;
+  for(const [rid,row] of devRows) row.classList.toggle('sel',rid===id);
+  renderDrawer(B.devices.find(d=>d.id===id));
+  drawRadar();
+}
+function closeDrawer(){
+  selectedDev=null;
+  for(const [,row] of devRows) row.classList.remove('sel');
+  const dr=$('drawer'); dr.className='drawer'; dr.innerHTML='';
+  drawRadar();
+}
+
+// Build the drawer ONCE per selection. Live values carry stable ids so the
+// tick handler can refresh them in place without rebuilding (no flicker, and
+// buttons never get replaced mid-click).
+function renderDrawer(d){
+  const dr=$('drawer');
+  if(!d){dr.className='drawer';dr.innerHTML='';return;}
+  const tools=B.tools.filter(t=>t.channel===d.channel);
+  dr.innerHTML=
+    '<div class="dh"><button class="x" id="drawerX">✕ close</button>'+
+      '<div class="dkind" id="dw-kind"></div>'+
+      '<div class="dconf"><span id="dw-conf"></span> confidence <span class="cbar"><span class="cf" id="dw-confbar"></span></span></div>'+
+      '<div class="dm mono" id="dw-fresh" style="font-size:10px;color:var(--dimmer);margin-top:3px"></div></div>'+
+    '<div class="sec">'+'<div class="st" style="color:var(--cyan)">Identity</div>'+
+      '<div class="kv"><span class="k">Device type</span><span class="v" id="dw-type"></span></div>'+
+      '<div class="kv"><span class="k">Seen via</span><span class="v" id="dw-method"></span></div>'+
+      '<div class="kv"><span class="k">Maker</span><span class="v" id="dw-maker"></span></div>'+
+      '<div class="kv"><span class="k">Address</span><span class="v mono" id="dw-mac" style="font-size:11px"></span></div>'+
+      '<div class="kv" id="dw-iprow" style="display:none"><span class="k">IP</span><span class="v mono" id="dw-ip" style="font-size:11px"></span></div>'+
+      '<div class="kv"><span class="k">Signal</span><span class="v" id="dw-ident"></span></div>'+
+      '<div class="kv"><span class="k">Band</span><span class="v" id="dw-band"></span></div>'+
+      '<div class="st" style="color:var(--cyan)">Why we think so (evidence)</div><div class="box" id="dw-evidence"></div>'+
+      '<div class="st" style="color:var(--dim)">Behavior</div><div class="box" id="dw-behavior"></div>'+
+      '<div class="st" style="color:var(--dim)">What it’s surveilling</div><div class="box" id="dw-surv"></div>'+
+      '<div class="st" style="color:var(--dim)">What it can capture</div><div class="box" id="dw-cap"></div>'+
+      '<div class="st" style="color:var(--alert)">What it’s capturing on you now</div><div class="box danger" id="dw-now"></div>'+
+      '<div class="st" style="color:var(--clear)">Where it is</div>'+
+      '<div class="kv"><span class="k">Signal</span><span class="v mono" id="dw-rssi"></span></div>'+
+      '<div class="kv"><span class="k">Distance (est.)</span><span class="v mono" id="dw-dist"></span></div>'+
+      '<div class="kv"><span class="k">Direction</span><span class="v mono" style="color:var(--dim)">not measurable</span></div>'+
+      '<div class="box" style="margin-top:6px;font-size:11.5px" id="dw-locnote"></div>'+
+      '<button class="locate" id="drawerLocate">◎ LOCATE IT · SIGNAL METER</button>'+
+      '<button class="locate" id="drawerSignal" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan)">◉ LIVE SIGNAL TRACE (real RSSI)</button>'+
+      '<div class="st" style="color:var(--clear)">How to handle it</div>'+
+      d.counter.map(c=>'<div class="step">'+c+'</div>').join('')+
+      '<div class="st" style="color:var(--cyan)">Investigate with</div>'+
+      '<div class="invrow">'+tools.map(t=>'<button class="inv" data-tool="'+t.id+'">'+t.name+' →</button>').join('')+'</div>'+
+    '</div>';
+  dr.className='drawer open';
+  $('drawerX').onclick=closeDrawer;
+  $('drawerLocate').onclick=()=>{const cur=B.devices.find(x=>x.id===selectedDev)||d; openLocate(cur);};
+  $('drawerSignal').onclick=()=>{const cur=B.devices.find(x=>x.id===selectedDev)||d; openDeviceSignal(cur.id);};
+  dr.querySelectorAll('.inv').forEach(b=>b.onclick=()=>openTool(b.dataset.tool));
+  syncDrawer();   // fill in all values
+}
+// refresh ONLY the live values of the open drawer; never rebuilds or closes it.
+function syncDrawer(){
+  if(!selectedDev || !$('dw-kind')) return;
+  const d=B.devices.find(x=>x.id===selectedDev);
+  if(!d){ setTxt('dw-fresh','⚠ signal lost — no longer detected (panel kept open)'); return; }
+  setTxt('dw-kind',devTitle(d));
+  setTxt('dw-conf',d.confidence+'%');
+  const cb=$('dw-confbar'); if(cb) cb.style.width=d.confidence+'%';
+  setTxt('dw-type',(d.device_type||d.kind)+(d.is_new?'  · 🆕 NEW since you arrived':''));
+  setTxt('dw-method',(d.method||channelName(d.channel))+(devName(d)?'  ·  name: "'+devName(d)+'"':''));
+  setTxt('dw-maker',d.maker+(d.model&&d.model!=='—'&&d.model!==d.maker?' · '+d.model:''));
+  setTxt('dw-mac',d.mac);
+  const iprow=$('dw-iprow'); if(iprow){ iprow.style.display=d.ip?'':'none'; setTxt('dw-ip',d.ip||''); }
+  setTxt('dw-evidence',(d.evidence&&d.evidence.length)?d.evidence.join(' · '):'No distinguishing clues — identified only by MAC/signal.');
+  setTxt('dw-ident',d.ident);
+  setTxt('dw-band',d.bandtxt);
+  setTxt('dw-behavior',d.behaviortxt);
+  setTxt('dw-surv',d.surveilling);
+  setTxt('dw-cap',d.cancapture);
+  setTxt('dw-now',d.capturingnow);
+  setTxt('dw-rssi',d.rssi!=null?d.rssi+' dBm':'—');
+  setTxt('dw-dist','~'+d.distance+' m ±'+d.uncertainty);
+  setTxt('dw-locnote',d.locnote||'');
+  setTxt('dw-fresh', d._stale ? ('· last heard '+Math.round(d._ageMs/1000)+'s ago — fading') : '· live');
+}
+
+// ---------- RADAR ----------
+let sweepAngle=0, radarRAF=null;
+let radarZoom=1;               // 1 = 13 m at the edge; >1 zooms in
+let radarBlips=[];             // {id,x,y,r} for click hit-testing
+function drawRadar(){
+  const cv=$('radar'),g=cv.getContext('2d'),W=cv.width,H=cv.height,cx=W/2,cy=H/2,R=W*0.43;
+  const maxRange=13/radarZoom;
+  g.clearRect(0,0,W,H);
+  radarBlips=[];
+  // rings + range labels (reflect zoom)
+  g.strokeStyle='#1E242C';g.lineWidth=2;
+  for(let i=1;i<=3;i++){g.beginPath();g.arc(cx,cy,R*i/3,0,7);g.stroke();}
+  g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
+  for(let i=1;i<=3;i++)g.fillText((maxRange*i/3).toFixed(1)+'m',cx+4,cy-R*i/3+14);
+  // outer ring = LAN devices (no RF range)
+  g.strokeStyle='#22303a';g.setLineDash([3,4]);g.beginPath();g.arc(cx,cy,R*0.99,0,7);g.stroke();g.setLineDash([]);
+  g.fillStyle='#3a4650';g.fillText('LAN ring (on your Wi-Fi · no RF range)',cx-R*0.7,cy-R*0.99-4);
+  g.strokeStyle='#181d24';
+  for(let a=0;a<360;a+=30){const r=a*Math.PI/180;g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+Math.cos(r)*R,cy+Math.sin(r)*R);g.stroke();}
+  // sweep beam
+  const sa=(sweepAngle-90)*Math.PI/180;
+  if(!IS_SMALL){   // the radial-gradient fill is the costliest part — skip it on phones
+    const grad=g.createRadialGradient(cx,cy,0,cx,cy,R);
+    grad.addColorStop(0,'rgba(72,201,224,0.18)');grad.addColorStop(1,'rgba(72,201,224,0)');
+    g.fillStyle=grad;g.beginPath();g.moveTo(cx,cy);g.arc(cx,cy,R,sa-0.42,sa+0.04);g.closePath();g.fill();
+  }
+  g.strokeStyle='rgba(72,201,224,0.5)';g.lineWidth=1.5;g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+Math.cos(sa)*R,cy+Math.sin(sa)*R);g.stroke();
+  // center (you)
+  g.fillStyle='#3FB984';g.beginPath();g.arc(cx,cy,7,0,7);g.fill();
+  g.strokeStyle='rgba(63,185,132,.3)';g.lineWidth=2;g.beginPath();g.arc(cx,cy,12,0,7);g.stroke();
+  B.devices.forEach(d=>{
+    const ang=(d.bearing-90)*Math.PI/180;
+    const lan=(d.rssi==null);                          // LAN-only → outer ring
+    const rr=lan?R*0.99:R*Math.min(1,d.distance/maxRange);
+    const x=cx+Math.cos(ang)*rr,y=cy+Math.sin(ang)*rr,c=SEVC[d.severity],sel=d.id===selectedDev;
+    const lit=Math.abs(((d.bearing-sweepAngle+540)%360)-180)<26;
+    const rad=sel?9:(lit?7:5);
+    radarBlips.push({id:d.id,x,y,r:rad});
+    if(!lan){g.strokeStyle=c+'44';g.lineWidth=1;g.beginPath();g.arc(x,y,Math.max(6,d.uncertainty*6/radarZoom),0,7);g.stroke();}
+    g.fillStyle=c;g.shadowColor=c;g.shadowBlur=IS_SMALL?0:(sel?20:(lit?16:8));   // glow off on phones (heavy with many blips)
+    if(d.category==='camera'){g.fillRect(x-rad,y-rad,rad*2,rad*2);}   // cameras = squares
+    else{g.beginPath();g.arc(x,y,rad,0,7);g.fill();}
+    g.shadowBlur=0;
+    if(sel){g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.arc(x,y,14,0,7);g.stroke();}
+  });
+}
+let _radarLast=0;
+function radarLoop(ts){
+  radarRAF=requestAnimationFrame(radarLoop);
+  if(ts && (ts-_radarLast) < (1000/RADAR_FPS)) return;   // cap FPS — lighter on phones
+  _radarLast=ts||0;
+  sweepAngle=(sweepAngle+RADAR_STEP)%360;
+  drawRadar();
+}
+function startRadar(){ if(!radarRAF) radarRAF=requestAnimationFrame(radarLoop); }
+function stopRadar(){ if(radarRAF){cancelAnimationFrame(radarRAF);radarRAF=null;} }
+function radarZoomBy(f){ radarZoom=Math.max(0.5,Math.min(8,radarZoom*f)); }
+// click a blip to open that device
+(function wireRadarClick(){
+  const cv=$('radar'); if(!cv) return;
+  cv.style.cursor='pointer';
+  cv.onclick=(e)=>{
+    const rect=cv.getBoundingClientRect();
+    const sx=cv.width/rect.width, sy=cv.height/rect.height;
+    const mx=(e.clientX-rect.left)*sx, my=(e.clientY-rect.top)*sy;
+    let best=null,bd=1e9;
+    // tolerance scales with sx (canvas px per display px) so a finger-sized tap
+    // works even when the 560px canvas is shrunk onto a ~360px phone screen.
+    const tol=(IS_SMALL?24:16)*Math.max(1,sx);
+    radarBlips.forEach(b=>{const dd=Math.hypot(b.x-mx,b.y-my); if(dd<Math.max(b.r+10,tol)&&dd<bd){bd=dd;best=b;}});
+    if(best) selectDevice(best.id);
+  };
+})();
+(function wireZoom(){
+  const zl=()=>{const e=$('zoomLbl'); if(e) e.textContent=(13/radarZoom).toFixed(1)+'m range';};
+  const zi=$('zoomIn'), zo=$('zoomOut');
+  if(zi) zi.onclick=()=>{radarZoomBy(1.5);zl();};
+  if(zo) zo.onclick=()=>{radarZoomBy(1/1.5);zl();};
+  zl();
+})();
+// ---- survey control bar wiring ----
+(function wireControls(){
+  const ts=$('threshSlider'), tv=$('threshVal');
+  if(ts) ts.oninput=()=>{ gThreshold=parseInt(ts.value,10);
+    tv.textContent=(gThreshold<=-100?'−100 (all)':(gThreshold+' dBm')).replace('-','−'); syncDevList(); };
+  document.querySelectorAll('#bandChips .chiptog').forEach(c=>{
+    c.onclick=()=>{ const b=c.dataset.band; if(gBands.has(b)){gBands.delete(b);c.classList.remove('on');}
+      else{gBands.add(b);c.classList.add('on');} syncDevList(); };
+  });
+  const nb=$('btnNewOnly');
+  if(nb) nb.onclick=()=>{ gNewOnly=!gNewOnly; nb.classList.toggle('armed',gNewOnly); syncDevList(); };
+  const bb=$('btnBaseline');
+  if(bb) bb.onclick=()=>{
+    gBaseline=new Map(); B.devices.forEach(d=>gBaseline.set(d.id, smoothOf(d.id)));
+    bb.classList.add('armed'); bb.textContent='⎙ BASELINE SET ('+gBaseline.size+')';
+    setTimeout(()=>{bb.textContent='⎙ RE-CAPTURE BASELINE';},1500); syncDevList();
+  };
+  const rb=$('btnRefresh');
+  if(rb) rb.onclick=()=>{
+    try{ if(liveWs&&liveWs.readyState===1) liveWs.send('rescan'); }catch(e){}
+    rb.classList.add('armed'); rb.textContent='⟳ SCANNING…';
+    setTimeout(()=>{rb.classList.remove('armed'); rb.textContent='⟳ REFRESH';},1200);
+  };
+})();
+
+// ---------- TOOLS GRID ----------
+function renderToolGrid(){
+  $('toolgrid').innerHTML=B.tools.map(t=>{
+    const n=B.devices.filter(d=>d.channel===t.channel).length;
+    return '<div class="card" data-tool="'+t.id+'"><h3><span class="ic"></span>'+t.name+
+      '<span class="cc">'+(n>0?n+' hit'+(n===1?'':'s'):'clear')+'</span></h3>'+
+      '<p>'+t.what+'</p><div class="open">Open tool ›</div></div>';
+  }).join('');
+  $('toolgrid').querySelectorAll('.card').forEach(c=>c.onclick=()=>openTool(c.dataset.tool));
+}
+
+// ---------- CHANNELS GRID ----------
+function renderChannels(){
+  $('chgrid').innerHTML=B.channels.map(c=>{
+    const n=B.devices.filter(d=>d.channel===c.id).length;
+    const col=n>0?'var(--suspect)':'var(--clear)';
+    return '<div class="chcard" data-ch="'+c.id+'"><div class="top"><span class="dot" style="background:'+col+'"></span>'+
+      '<h3>'+c.name+'</h3><span class="band">'+c.band+'</span></div>'+
+      '<div class="cnt" style="color:'+col+'">'+(n>0?n+' detection'+(n===1?'':'s'):'clear')+'</div>'+
+      '<p>'+c.catches+'</p>'+
+      '<div class="hw">Hardware: '+c.hw+'</div>'+
+      '<div class="open" style="margin-top:8px;font-family:Spline Sans Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open channel ›</div></div>';
+  }).join('');
+  $('chgrid').querySelectorAll('.chcard').forEach(el=>el.onclick=()=>openChannel(el.dataset.ch));
+}
+
+function openChannel(cid){
+  const c=B.channels.find(x=>x.id===cid); if(!c)return;
+  const devs=B.devices.filter(d=>d.channel===cid);
+  const tools=B.tools.filter(t=>t.channel===cid);
+  const col=devs.length?'var(--suspect)':'var(--clear)';
+  $('toolTitle').textContent=c.name+' · '+c.band;
+  let leftRows;
+  if(devs.length){
+    leftRows='<div class="sidehd" style="color:var(--dim);margin-top:4px">Detected here — tap to investigate</div>'+
+      devs.map(d=>'<div class="trow" data-id="'+d.id+'"><span class="td" style="background:'+SEVC[d.severity]+'"></span>'+
+        '<div><div class="tk">'+devTitle(d)+'</div><div class="ts">via '+methodShort(d)+' · '+d.ident+
+          (d.rssi!=null?' · '+d.rssi+' dBm':'')+'</div></div>'+
+        '<span class="tb">'+(d.distance!=null?'~'+d.distance+'m ›':'›')+'</span></div>').join('');
+  } else {
+    leftRows='<div class="emptytool">No detections on this channel right now. The station keeps monitoring it.</div>';
+  }
+  const statusTxt = devs.length ? (devs.length+' detection'+(devs.length===1?'':'s')+' on this channel') : 'Clear — nothing detected';
+  $('toolBody').innerHTML=
+    '<div class="tleft"><div class="sidehd" style="color:var(--cyan)">◉ CHANNEL STATUS</div>'+
+      '<div class="ablk"><div class="ah" style="color:'+col+'">'+statusTxt+'</div>'+
+        '<div class="am" style="margin-top:6px">'+c.catches+'</div></div>'+
+      leftRows+'</div>'+
+    '<div class="tright"><div class="sidehd" style="color:var(--amber)">✦ ABOUT THIS CHANNEL</div>'+
+      '<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">What it senses</div><div class="ablk"><div class="am">'+c.catches+'</div></div></div>'+
+      '<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Frequency / range</div><div class="ablk"><div class="am mono" style="font-size:12px">'+c.band+'</div></div></div>'+
+      '<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Hardware that powers it</div><div class="ablk"><div class="am">'+c.hw+'</div></div></div>'+
+      '<button class="locate" id="chanSignalBtn">◉ SEE THE LIVE SIGNAL</button>'+'<div><div class="sidehd" style="color:var(--clear);margin-bottom:5px">Tools on this channel</div>'+
+        '<div class="invrow">'+tools.map(t=>'<button class="inv" data-tool="'+t.id+'">'+t.name+' →</button>').join('')+'</div></div>'+
+    '</div>';
+  // wire device rows -> open the matching tool focused on that device
+  $('toolBody').querySelectorAll('.trow').forEach(r=>r.onclick=()=>openDeviceSignal(r.dataset.id));
+  // wire tool buttons
+  $('toolBody').querySelectorAll('.inv').forEach(b=>b.onclick=()=>openTool(b.dataset.tool));
+  const sb=$('chanSignalBtn'); if(sb) sb.onclick=()=>openSignal(cid);
+  $('toolOverlay').classList.add('on');
+}
+
+// ---------- TOOL OVERLAY (split: instrument | intel) ----------
+function openTool(id){
+  const t=B.tools.find(x=>x.id===id); if(!t)return;
+  $('toolTitle').textContent=t.name;
+  const devs=B.devices.filter(d=>d.channel===t.channel);
+  // physical-search tools narrow to camera/bug-type only
+  const physical=['lens','thermal','nljd'].includes(id);
+  const list=physical?devs.filter(d=>/camera|bug|listening|audio/i.test(d.kind)):devs;
+
+  let rows;
+  if(list.length){
+    rows=list.map(d=>
+      '<div class="trow" data-id="'+d.id+'"><span class="td" style="background:'+SEVC[d.severity]+'"></span>'+
+      '<div><div class="tk">'+devTitle(d)+'</div><div class="ts">via '+methodShort(d)+' · '+toolSignal(id,d)+
+        (d.rssi!=null?' · '+d.rssi+' dBm':'')+'</div></div>'+
+      '<span class="tb">'+(d.distance!=null?'~'+d.distance+'m ›':'›')+'</span></div>'
+    ).join('');
+  } else {
+    rows='<div class="emptytool">No detections on the '+t.name+' channel right now.<br><br>'+
+      '<b>This tool only reads its own channel.</b> Other signal types show under their own tools.</div>';
+  }
+
+  $('toolBody').innerHTML=
+    '<div class="tleft"><div class="sidehd" style="color:var(--cyan)">◉ '+t.name.toUpperCase()+' — LIVE</div>'+
+      '<div style="font-size:11px;color:var(--dim)">'+(list.length?(list.length+' detection'+(list.length===1?'':'s')+' on this channel · tap one'):'')+'</div>'+
+      rows+
+      '<div style="font-size:10.5px;color:var(--dimmer);line-height:1.45;margin-top:6px;border-top:1px solid var(--line);padding-top:8px">'+t.what+
+      '<br><br><b style="color:var(--amber)">Limits:</b> '+t.limits+'</div></div>'+
+    '<div class="tright" id="toolIntel"><div class="sidehd" style="color:var(--amber)">✦ INTEL</div>'+
+      '<div style="color:var(--dim);font-size:12px;padding:8px 0">'+(list.length?'Tap a device on the left for full intel.':'Nothing to investigate on this channel.')+'</div></div>';
+
+  $('toolBody').querySelectorAll('.trow').forEach(r=>r.onclick=()=>{
+    $('toolBody').querySelectorAll('.trow').forEach(x=>x.classList.remove('sel'));
+    r.classList.add('sel'); showIntel(r.dataset.id);
+  });
+  const first=$('toolBody').querySelector('.trow');
+  if(first){first.classList.add('sel');showIntel(first.dataset.id);}
+  $('toolOverlay').classList.add('on');
+}
+function toolSignal(id,d){ return d.ident; }
+function showIntel(devId){
+  const d=B.devices.find(x=>x.id===devId); if(!d)return;
+  const col=SEVC[d.severity];
+  $('toolIntel').innerHTML=
+    '<div class="sidehd" style="color:var(--amber)">✦ INTEL</div>'+
+    '<div class="ablk"><div class="ah" style="color:'+col+'">'+devTitle(d)+'</div>'+
+      '<div class="mono" style="font-size:10px;color:var(--clear);margin-top:2px">seen via '+(d.method||channelName(d.channel))+'</div>'+
+      '<div class="mono" style="font-size:11px;color:var(--dim);margin-top:2px">'+d.maker+' · '+d.mac+'</div>'+'<div class="mono" style="font-size:10px;color:var(--dimmer);margin-top:3px">'+d.ident+' · '+d.bandtxt+'</div></div>'+'<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Behavior</div><div class="ablk"><div class="am">'+d.behaviortxt+'</div></div></div>'+
+    '<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Surveilling</div><div class="ablk"><div class="am">'+d.surveilling+'</div></div></div>'+
+    '<div><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Can capture</div><div class="ablk"><div class="am">'+d.cancapture+'</div></div></div>'+
+    '<div><div class="sidehd" style="color:var(--alert);margin-bottom:5px">Capturing on you now</div><div class="ablk" style="border:1px solid #3a1512"><div class="am">'+d.capturingnow+'</div></div></div>'+
+    '<div><div class="sidehd" style="color:var(--clear);margin-bottom:5px">Where it is</div><div class="ablk"><div class="am mono" style="font-size:12px">'+(d.rssi!=null?d.rssi+' dBm · ':'')+'~'+d.distance+'m ±'+d.uncertainty+'m · direction not measurable</div>'+
+      '<button class="locate" id="intelLocate">◎ LOCATE IT · SIGNAL METER</button></div></div>'+
+    '<div><div class="sidehd" style="color:var(--clear);margin-bottom:5px">How to handle it</div>'+
+      d.counter.map(c=>'<div class="next" style="margin-bottom:6px">'+c+'</div>').join('')+'</div>';
+  $('intelLocate').onclick=()=>openLocate(d);
+}
+function closeTool(){$('toolOverlay').classList.remove('on');}
+
+// ---------- LOCATE OVERLAY (live signal-strength meter from REAL RSSI) ----------
+// Built-in Bluetooth gives no direction — only signal strength. So Locate is an
+// honest signal-strength meter: it reads the target device's real, live RSSI on
+// every scan tick. Walk a few steps; rising signal = closer, falling = farther.
+let locateTargetId=null;     // device id we're homing in on
+let locateHist=[];           // recent REAL samples: {t, rssi}
+let locateDisp=0;            // smoothed displayed strength 0..1 (for a calm needle)
+
+function rssiToStrength(rssi){
+  if(rssi==null) return 0;
+  return Math.max(0, Math.min(1, (rssi+100)/60));   // ~-100 dBm→0, ~-40 dBm→1
+}
+function locateTrendDbm(){
+  // change in RSSI: average of the newest samples vs a few ticks earlier.
+  if(locateHist.length<3) return null;
+  const n=locateHist.length;
+  const recent=locateHist.slice(-2);
+  const older=locateHist.slice(Math.max(0,n-6), Math.max(1,n-3));
+  if(!older.length) return null;
+  const avg=a=>a.reduce((s,x)=>s+x.rssi,0)/a.length;
+  return avg(recent)-avg(older);   // + = signal rising (stronger / closer)
+}
+
+// ---- audio tone: pitch + beep-rate rise with signal (pro near-field locator) -
+let locAudioCtx=null, locOsc=null, locGain=null, locToneOn=false, locBeepPhase=0;
+function locToneStart(){
+  if(locToneOn) return;
+  try{
+    locAudioCtx=locAudioCtx||new (window.AudioContext||window.webkitAudioContext)();
+    locOsc=locAudioCtx.createOscillator(); locGain=locAudioCtx.createGain();
+    locOsc.type='square'; locGain.gain.value=0; locOsc.connect(locGain); locGain.connect(locAudioCtx.destination);
+    locOsc.start(); locToneOn=true;
+  }catch(e){ locToneOn=false; }
+}
+function locToneStop(){ if(locGain) locGain.gain.value=0; }
+function locToneUpdate(strength,dt){
+  if(!locToneOn||!locAudioCtx) return;
+  const f=400+strength*1400;                       // 400→1800 Hz with strength
+  locOsc.frequency.setTargetAtTime(f, locAudioCtx.currentTime, 0.02);
+  const rate=1.5+strength*8;                        // beeps/sec rise with strength
+  locBeepPhase=(locBeepPhase+dt*rate)%1;
+  const on=locBeepPhase<0.5;
+  locGain.gain.setTargetAtTime(on?0.06:0, locAudioCtx.currentTime, 0.005);
+}
+
+// 10-segment LED bar-graph: how many segments lit = signal strength.
+function drawMeter(g,x,y,w,h,strength,dBm){
+  const N=10, gap=4, sw=(w-gap*(N-1))/N;
+  const lit=Math.round(strength*N);
+  for(let i=0;i<N;i++){
+    const on=i<lit;
+    const col = i<5?'#3FB984' : i<8?'#F2A93B' : '#E5564B';
+    g.fillStyle = on?col:'#161b22';
+    if(on){g.shadowColor=col;g.shadowBlur=10;}
+    g.fillRect(x+i*(sw+gap), y, sw, h); g.shadowBlur=0;
+    g.strokeStyle='#222a33';g.lineWidth=1;g.strokeRect(x+i*(sw+gap),y,sw,h);
+  }
+}
+
+function openLocate(d){
+  locateTargetId=d.id;
+  locateHist=[];
+  locateDisp=rssiToStrength(d.rssi);
+  $('locTitle').textContent='SIGNAL LOCATOR · '+devTitle(d);
+  $('locOverlay').classList.add('on');
+  locateLiveUpdate();
+  if(locRAF)cancelAnimationFrame(locRAF);
+  const cv=$('locCanvas'),g=cv.getContext('2d');
+  let last=performance.now();
+  function step(){
+    const nowT=performance.now(), dt=Math.min(0.1,(nowT-last)/1000); last=nowT;
+    const dev=B.devices.find(x=>x.id===locateTargetId);
+    const hasRf = dev && dev.rssi!=null;
+    const live=hasRf?rssiToStrength(dev.rssi):0;
+    locateDisp+=(live-locateDisp)*0.10;            // smoothed needle
+    const trend=locateTrendDbm();
+    const W=cv.width,H=cv.height;
+    g.fillStyle='#080a0d';g.fillRect(0,0,W,H);
+    // instrument frame
+    g.strokeStyle='#1b232c';g.lineWidth=1;g.strokeRect(8,8,W-16,H-16);
+    g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';g.textAlign='left';
+    g.fillText('SIGNAL STRENGTH',24,30);
+    if(!hasRf){
+      g.fillStyle='#F2A93B';g.font='600 18px Archivo';g.fillText('NO RF SIGNAL',24,72);
+      g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
+      g.fillText(dev?'LAN device — found by IP, not radio':'signal lost',24,94);
+      locToneStop(); locRAF=requestAnimationFrame(step); return;
+    }
+    // 10-seg LED bar
+    drawMeter(g,24,44,W-48,30,locateDisp,dev.rssi);
+    // big numerics: dBm + %
+    g.textAlign='left';
+    g.fillStyle='#e6edf3';g.font='600 40px Archivo';g.fillText(dev.rssi+' dBm',24,128);
+    g.fillStyle='#48C9E0';g.font='600 30px Archivo';g.textAlign='right';g.fillText(Math.round(locateDisp*100)+'%',W-24,128);
+    g.textAlign='left';
+    // proximity trend (secondary, honest — not direction)
+    const tcol = trend==null?'#5A6470':trend>1.2?'#3FB984':trend<-1.2?'#E5564B':'#F2A93B';
+    const tlabel = trend==null?'— hold steady to read —':trend>1.2?'▲ SIGNAL RISING (closer)':trend<-1.2?'▼ SIGNAL FALLING (farther)':'◆ STEADY';
+    g.fillStyle=tcol;g.font='600 15px Spline Sans Mono';g.fillText(tlabel,24,162);
+    g.fillStyle='#3a4650';g.font='10px Spline Sans Mono';g.fillText('~'+dev.distance+' m (approx, from signal) · direction needs the antenna',24,182);
+    // audio
+    if(locToneOn) locToneUpdate(locateDisp,dt);
+    locRAF=requestAnimationFrame(step);
+  }
+  step();
+}
+
+// called on every live WS tick while Locate is open
+function locateLiveUpdate(){
+  if(!locateTargetId || !$('locOverlay').classList.contains('on')) return;
+  const d=B.devices.find(x=>x.id===locateTargetId);
+  if(d && d.rssi!=null){
+    locateHist.push({t:Date.now(), rssi:d.rssi});
+    if(locateHist.length>40) locateHist.shift();
+  }
+  // LAN devices are found by IP/ARP, not radio — there is no RSSI to home in on.
+  if(d && d.rssi==null && (d.channel==='network'||d.ip)){
+    $('locSub').textContent = (d.ip||'')+' · on your network';
+    $('locReadout').innerHTML=
+      '<div class="ablk"><div class="ah" style="color:var(--amber)">No RF signal to track</div>'+
+      '<div class="am" style="margin-top:6px">This device was found on your Wi-Fi network by its IP/MAC ('+(d.ip||d.mac)+'), not by a radio signal — so the signal-strength meter doesn’t apply.</div></div>'+
+      '<div style="margin-top:10px"><div class="sidehd" style="color:var(--dim);margin-bottom:5px">How to find it physically</div>'+
+      '<div class="ablk"><div class="am">Check your router’s client list for this MAC, unplug/power-cycle suspects and watch which device drops off, or use the BLE/Wi-Fi RF view if it also advertises over those.</div></div></div>';
+    return;
+  }
+  const trend=locateTrendDbm();
+  const strengthPct = d&&d.rssi!=null ? Math.round(rssiToStrength(d.rssi)*100) : 0;
+  let head, col, tip;
+  if(!d){ head='Signal lost'; col='var(--dim)';
+    tip='The device stopped advertising or moved out of range. Stand still or walk back the way you came to pick it up again.'; }
+  else if(trend==null){ head='Reading signal…'; col='var(--cyan)';
+    tip='Hold still for a moment, then take a few steps. The bar reacts to your real distance.'; }
+  else if(trend>1.2){ head='▲ Signal rising — getting closer'; col='var(--clear)';
+    tip='Signal is rising ('+(trend>0?'+':'')+trend.toFixed(1)+' dBm). Keep going this way.'; }
+  else if(trend<-1.2){ head='▼ Signal falling — moving away'; col='var(--alert)';
+    tip='Signal is falling ('+trend.toFixed(1)+' dBm). Turn around — you were closer before.'; }
+  else { head='◆ Holding steady'; col='var(--amber)';
+    tip='Little change. Move a few steps in any direction and watch whether the bar climbs.'; }
+  $('locSub').textContent = d&&d.rssi!=null ? (d.rssi+' dBm · ~'+d.distance+' m (est.)') : 'no signal';
+  $('locReadout').innerHTML=
+    '<div class="ablk"><div class="ah" style="color:'+col+'">'+strengthPct+'% signal</div>'+
+    '<div class="am" style="margin-top:6px;font-weight:600">'+head+'</div>'+
+    '<div class="am" style="margin-top:4px">'+tip+'</div></div>'+
+    '<div style="margin-top:10px"><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Live distance estimate</div>'+
+    '<div class="ablk"><div class="am mono">'+(d&&d.rssi!=null?d.rssi+' dBm · ~'+d.distance+' m ±'+d.uncertainty+'m':'—')+'</div></div></div>'+
+    '<div style="margin-top:10px"><div class="sidehd" style="color:var(--dim);margin-bottom:5px">Honest limit</div>'+
+    '<div class="ablk"><div class="am">Built-in Bluetooth can’t tell <b>direction</b> — only strength. This is a signal-strength meter, not a compass. A directional antenna (later) adds true bearing.</div></div></div>'+
+    (d?('<div style="margin-top:10px"><div class="sidehd" style="color:var(--clear);margin-bottom:5px">Once you reach it</div>'+
+    (d.counter||[]).slice(0,2).map(c=>'<div class="next" style="margin-bottom:6px">'+c+'</div>').join('')+'</div>'):'');
+}
+function closeLocate(){$('locOverlay').classList.remove('on');locateTargetId=null;locToneStop();if(locRAF){cancelAnimationFrame(locRAF);locRAF=null;}}
+(function wireTone(){
+  const b=$('locTone'); if(!b) return;
+  b.onclick=()=>{
+    if(locToneOn){ locToneStop(); locToneOn=false; if(locOsc){try{locOsc.stop();}catch(e){} locOsc=null;} b.textContent='🔇 TONE OFF'; }
+    else { locToneStart(); b.textContent= locToneOn?'🔊 TONE ON':'🔇 (no audio)'; }
+  };
+})();
+
+
+// ---------- LIVE SIGNAL VIEW (REAL signal only — never synthesized) ----------
+// The ONLY continuous per-device signal SENTRY measures is RSSI over time:
+//   - BLE  : real dBm reported by the adapter
+//   - Wi-Fi: Windows signal %, mapped to ~dBm, refreshed each scan
+// There is NO spectrum/waterfall hardware on this build, so we NEVER draw one.
+// A device or channel with no real RSSI shows an explicit "NO SIGNAL" state — we
+// never generate, animate, or fill in a signal that wasn't actually measured.
+let sigRAF=null;
+let sigDevice=null;     // device-focused mode: the focused device's id (or null)
+let sigChannel=null;    // channel mode: the channel id (or null)
+let sigHist=[];         // focused device's REAL RSSI samples, oldest -> newest
+let sigLive=false;      // did the most recent scan tick carry a real reading?
+
+function rssiToY(r,H){ const s=Math.max(0,Math.min(1,(r+100)/60)); return H*0.82+10-(s*H*0.82); }
+
+function drawNoSignal(g,W,H,title,msg){
+  g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
+  g.strokeStyle='#1b232c';g.lineWidth=1;g.strokeRect(8,8,W-16,H-16);
+  g.textAlign='left';
+  g.fillStyle='#E5564B';g.font='600 30px Archivo';g.fillText(title||'NO SIGNAL',24,H/2-8);
+  g.fillStyle='#5A6470';g.font='12px Spline Sans Mono';
+  String(msg||'').split('\n').forEach((ln,i)=>g.fillText(ln,24,H/2+20+i*18));
+}
+
+// (a) device-focused: that ONE device's real RSSI over time (one point per tick)
+function drawRssiTrace(g,W,H){
+  g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
+  g.strokeStyle='#1E242C';g.lineWidth=1;g.textAlign='left';
+  g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';
+  for(let k=0;k<=3;k++){const dbm=-40-k*20;const y=H*(k/3)*0.82+10;
+    g.beginPath();g.moveTo(42,y);g.lineTo(W,y);g.stroke();g.fillText(dbm+' dBm',2,y+3);}
+  const col=sigLive?'#48C9E0':'#5A6470';
+  g.strokeStyle=col;g.lineWidth=2;g.beginPath();
+  sigHist.forEach((r,i)=>{const x=42+(W-50)*(i/Math.max(1,sigHist.length-1));const y=rssiToY(r,H);i?g.lineTo(x,y):g.moveTo(x,y);});
+  g.stroke();
+  const last=sigHist[sigHist.length-1];
+  g.fillStyle=col;g.beginPath();g.arc(42+(W-50),rssiToY(last,H),3.5,0,7);g.fill();
+  g.textAlign='right';
+  g.fillStyle=sigLive?'#9FB1C2':'#5A6470';g.font='600 22px Archivo';g.fillText(last+' dBm',W-16,28);
+  g.fillStyle=sigLive?'#3FB984':'#E5564B';g.font='600 11px Spline Sans Mono';
+  g.fillText(sigLive?('● LIVE · '+sigHist.length+' real samples'):'○ SIGNAL LOST · last real value',W-16,44);
+  g.textAlign='left';
+}
+
+// (b) channel-level: a real snapshot of every device on the channel that has a
+// measured RSSI right now — one bar each, sorted by strength, no synthesis
+function drawChannelBars(g,W,H,devs){
+  g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
+  g.textAlign='left';g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
+  g.fillText('LIVE RSSI · '+devs.length+' device'+(devs.length===1?'':'s')+' with a real reading',16,22);
+  const top=40, maxRows=Math.max(1,Math.floor((H-top-12)/22)), shown=devs.slice(0,maxRows), rowH=22;
+  shown.forEach((d,i)=>{
+    const y=top+i*rowH, s=Math.max(0,Math.min(1,(d.rssi+100)/60)), barW=(W-210)*s;
+    const col=d.rssi>=-55?'#3FB984':d.rssi>=-80?'#F2A93B':'#E5564B';
+    g.fillStyle='#11171e';g.fillRect(150,y,W-210,14);
+    g.fillStyle=col;g.fillRect(150,y,barW,14);
+    g.fillStyle='#9FB1C2';g.font='11px Spline Sans Mono';g.textAlign='left';
+    g.fillText(String(devTitle(d)).slice(0,20),16,y+12);
+    g.textAlign='right';g.fillStyle=col;g.fillText(d.rssi+' dBm',W-16,y+12);
+  });
+  g.textAlign='left';
+  if(devs.length>shown.length){ g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';
+    g.fillText('+'+(devs.length-shown.length)+' more',16,top+shown.length*rowH+12); }
+}
+
+function drawSignal(){
+  const cv=$('sigCanvas'),g=cv.getContext('2d'),W=cv.width,H=cv.height;
+  if(sigDevice){
+    const d=B.devices.find(x=>x.id===sigDevice);
+    if(sigHist.length){ drawRssiTrace(g,W,H); }
+    else if(d && (d.ip||d.channel==='network')){
+      drawNoSignal(g,W,H,'NO RADIO SIGNAL','Found on your network by IP/MAC — not a radio reading.\nThere is no RSSI to plot. Use the router client list to find it.');
+    } else {
+      drawNoSignal(g,W,H,'NO SIGNAL','This device has no measured RSSI.\nA signal trace needs a real radio reading (BLE / Wi-Fi).');
+    }
+    return;
+  }
+  const cid=sigChannel;
+  const onCh=B.devices.filter(d=>d.channel===cid && d.rssi!=null);
+  if(onCh.length){ onCh.sort((a,b)=>b.rssi-a.rssi); drawChannelBars(g,W,H,onCh); return; }
+  const total=B.devices.filter(d=>d.channel===cid).length;
+  drawNoSignal(g,W,H,'NO SIGNAL', total
+    ? (total+' device(s) on this channel were found without a radio reading\n(e.g. on the LAN by IP). No live RSSI to display.')
+    : 'Nothing with a real RSSI reading on this channel right now —\nnothing is being received, or this channel has no hardware.');
+}
+
+function signalCaption(cid){
+  const m={
+    bluetooth:"Live BLE signal strength (RSSI, dBm). Each bar is a device's real current reading; open one device for its trace over time.",
+    wifi:"Live Wi-Fi signal strength per access point — Windows' % mapped to ~dBm. Each bar is a real current reading.",
+    network:"LAN devices are found by IP/MAC, not radio — there is no RSSI to plot here."
+  };
+  return m[cid] || "This channel has no signal-strength hardware on this build, so there is no live RSSI to display.";
+}
+
+// real, field-derived readout for the focused device (no canned narration)
+function renderDeviceReadout(d){
+  const rows=[];
+  rows.push(["read", d.rssi!=null
+    ? ('Live signal: '+d.rssi+' dBm · est. ~'+d.distance+' m away')
+    : ('No live signal — found via '+(d.method||channelName(d.channel))+', not a radio reading')]);
+  rows.push(["read","Band: "+d.bandtxt+" · confidence "+d.confidence+"%"]);
+  if(d.behaviortxt) rows.push(["read","Behavior: "+d.behaviortxt]);
+  rows.push(["concl","→ <b>"+devTitle(d)+"</b> (via "+(d.method||channelName(d.channel))+")"+(d.maker&&d.maker!=='Not announced'?' · '+d.maker:'')]);
+  if(d.surveilling) rows.push(["concl","Surveilling: "+d.surveilling]);
+  if(d.capturingnow) rows.push(["warn","Right now: "+d.capturingnow]);
+  const html=rows.map(function(p){var cls=p[0],txt=p[1];
+    return '<div class="feedline '+cls+'"><span class="tag">'+(cls==='read'?'◄ ':cls==='warn'?'⚠ ':'» ')+'</span>'+txt+'</div>';}).join('');
+  const fe=$('sigFeed'); if(fe._lastHtml!==html){ fe._lastHtml=html; fe.innerHTML=html; }  // only touch DOM when it actually changed
+}
+
+// real readout for a whole channel: list the ACTUAL devices + their real RSSI
+function renderChannelReadout(cid, hasHw, c){
+  const devs=B.devices.filter(d=>d.channel===cid);
+  // bucket RSSI to ~3 dB and tie-break by id so small jitter doesn't reshuffle
+  // the list every tick (that reorder reads as "glitching").
+  const withSig=devs.filter(d=>d.rssi!=null).sort((a,b)=>
+    (Math.round(b.rssi/3)-Math.round(a.rssi/3)) || String(a.id).localeCompare(String(b.id)));
+  let html='';
+  if(!hasHw) html+='<div class="feedline warn"><span class="tag">⚠ </span>No live '+(c?c.name:cid)+' hardware on this build — this channel cannot receive a real signal right now.</div>';
+  if(withSig.length){
+    html+='<div class="feedline read"><span class="tag">◄ </span>'+withSig.length+' device(s) with a real RSSI reading:</div>';
+    withSig.forEach(function(d){ html+='<div class="feedline"><span class="tag">» </span><b>'+devTitle(d)+'</b> · '+d.rssi+' dBm · '+d.mac+'</div>'; });
+  } else if(devs.length){
+    html+='<div class="feedline"><span class="tag">» </span>'+devs.length+' device(s) found without a radio reading (e.g. on the LAN by IP). No live signal to show.</div>';
+  } else {
+    html+='<div class="feedline"><span class="tag">» </span>Nothing detected on this channel right now.</div>';
+  }
+  const fe=$('sigFeed'); if(fe._lastHtml!==html){ fe._lastHtml=html; fe.innerHTML=html; }  // only touch DOM when it actually changed
+}
+
+function openSignal(cid){
+  const c=B.channels.find(x=>x.id===cid); if(!c)return;
+  sigDevice=null; sigChannel=cid; sigHist=[]; sigLive=false;
+  const liveSet=new Set((B._sensors||[]).filter(s=>s.online).map(s=>s.channel));
+  const hasHw=liveSet.has(cid);
+  $('sigTitle').textContent=c.name+' — Live Signal';
+  $('sigSub').textContent=c.band+(hasHw?'':' · no live hardware');
+  $('sigCaption').innerHTML=signalCaption(cid);
+  renderChannelReadout(cid, hasHw, c);
+  $('sigOverlay').classList.add('on');
+  if(sigRAF)cancelAnimationFrame(sigRAF);
+  let _sigLast=0;
+  (function loop(ts){ sigRAF=requestAnimationFrame(loop); if(ts&&ts-_sigLast<1000/SIG_FPS)return; _sigLast=ts||0; drawSignal(); })();
+}
+
+function openDeviceSignal(devId){
+  const d=B.devices.find(x=>x.id===devId); if(!d)return;
+  sigChannel=null; sigDevice=d.id;
+  sigHist=(d.rssi!=null?[d.rssi]:[]); sigLive=(d.rssi!=null);
+  $('sigTitle').textContent=devTitle(d)+' — Live Signal';
+  $('sigSub').textContent=(d.rssi!=null?d.rssi+' dBm · ':'no signal · ')+d.ident;
+  $('sigCaption').innerHTML='<b style="color:var(--ink)">'+d.maker+(d.model&&d.model!=='—'?' · '+d.model:'')+'</b> · '+d.mac+'<br>'+
+    (d.rssi!=null?"Live RSSI trace below — this device's real signal over time, one point per scan tick."
+                 :'No radio reading for this device — nothing to plot (see panel).');
+  renderDeviceReadout(d);
+  $('sigOverlay').classList.add('on');
+  if(sigRAF)cancelAnimationFrame(sigRAF);
+  let _sigLast=0;
+  (function loop(ts){ sigRAF=requestAnimationFrame(loop); if(ts&&ts-_sigLast<1000/SIG_FPS)return; _sigLast=ts||0; drawSignal(); })();
+}
+
+// called every live WS tick: append the focused device's REAL new sample, or
+// refresh the channel readout — purely from measured data
+function syncDeviceSignal(){
+  if(!$('sigOverlay').classList.contains('on')) return;
+  if(sigDevice){
+    const d=B.devices.find(x=>x.id===sigDevice);
+    if(d && d.rssi!=null){
+      sigHist.push(d.rssi); if(sigHist.length>240) sigHist.shift(); sigLive=true;
+      $('sigSub').textContent=d.rssi+' dBm · '+d.ident;
+    } else {
+      sigLive=false;
+      $('sigSub').textContent=(d?'signal lost — no current reading':'device no longer detected');
+    }
+    if(d) renderDeviceReadout(d);
+  } else if(sigChannel){
+    const c=B.channels.find(x=>x.id===sigChannel);
+    const liveSet=new Set((B._sensors||[]).filter(s=>s.online).map(s=>s.channel));
+    renderChannelReadout(sigChannel, liveSet.has(sigChannel), c);
+  }
+}
+
+function closeSignal(){ sigDevice=null; sigChannel=null; sigHist=[]; sigLive=false; $('sigOverlay').classList.remove('on'); if(sigRAF){cancelAnimationFrame(sigRAF);sigRAF=null;} }
+
+
+// ---------- WIRE OVERLAY EXITS ----------
+$('toolExit').onclick=closeTool;
+$('locExit').onclick=closeLocate;
+$('sigExit').onclick=closeSignal;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeTool();closeLocate();closeSignal();}});
+
+// ---------- RESCAN ----------
+$('rescan').onclick=()=>{
+  selectedDev=null; renderDrawer(null);
+  const btn=$('rescan'); const orig=btn.textContent;
+  btn.textContent='SCANNING…'; btn.style.opacity='0.6';
+  $('stAlert').innerHTML='<span style=\"color:var(--cyan)\">sweeping all channels…</span>';
+  let n=0; const chans=B.channels.length;
+  const iv=setInterval(()=>{ n++; if(n>=chans){clearInterval(iv);
+    btn.textContent=orig; btn.style.opacity='1'; renderAll();
+  }}, 90);
+};
+
+// update tools/channels counts in place (no grid rebuild → no flicker)
+function syncGridCounts(){
+  document.querySelectorAll('#toolgrid .card').forEach(card=>{
+    const t=B.tools.find(x=>x.id===card.dataset.tool); if(!t)return;
+    const n=B.devices.filter(d=>d.channel===t.channel).length;
+    const cc=card.querySelector('.cc'); if(cc) cc.textContent=n>0?n+' hit'+(n===1?'':'s'):'clear';
+  });
+  document.querySelectorAll('#chgrid .chcard').forEach(card=>{
+    const c=B.channels.find(x=>x.id===card.dataset.ch); if(!c)return;
+    const n=B.devices.filter(d=>d.channel===c.id).length;
+    const cnt=card.querySelector('.cnt'); if(cnt) cnt.textContent=n>0?n+' detection'+(n===1?'':'s'):'clear';
+  });
+}
+
+// ---------- INIT ----------
+function renderAll(){
+  refreshStatus(); renderDevList(); renderToolGrid(); renderChannels();
+}
+
+// ---------- LIVE BACKEND (real sensors) ----------
+// If the SENTRY backend is running, use its live detections. Otherwise the
+// built-in demo data stays (so the UI always works).
+let liveConnected=false;
+function showSensorStatus(sensors){
+  const on=sensors.filter(s=>s.online).map(s=>s.channel.toUpperCase());
+  const off=sensors.filter(s=>!s.online).map(s=>s.channel.toUpperCase());
+  let html='';
+  if(on.length) html+='<span style="color:var(--clear)">● '+on.join(' · ')+' live</span>';
+  if(off.length) html+=' <span style="color:var(--dimmer)">○ '+off.join(' ')+' (needs hardware)</span>';
+  // honest coverage notes from each sensor (e.g. Windows Wi-Fi scan limits)
+  const notes=sensors.filter(s=>s.note).map(s=>s.channel.toUpperCase()+': '+s.note);
+  if(notes.length) html+='<div style="color:var(--dimmer);font-size:10px;margin-top:3px">'+notes.join('<br>')+'</div>';
+  const el=$('sensorStatus'); if(el) el.innerHTML=html;
+}
+let liveWs=null;
+function connectBackend(){
+  let ws;
+  // Use the SAME host the page was loaded from (the laptop's LAN IP when opened
+  // from a phone), not a hardcoded localhost — so the live feed works remotely.
+  const wsHost=location.hostname||'localhost';
+  try{ ws=new WebSocket('ws://'+wsHost+':8765'); }catch(e){ return; }
+  liveWs=ws;
+  ws.onopen=()=>{ liveConnected=true;
+    const s=$('stAlert'); /* status hint handled on data */ };
+  ws.onmessage=ev=>{
+    try{
+      const msg=JSON.parse(ev.data);
+      if(msg && Array.isArray(msg.devices)){
+        liveConnected=true;
+        if(Array.isArray(msg.sensors)){ B._sensors=msg.sensors; showSensorStatus(msg.sensors); }
+        // merge into the grace roster (stable order, no random drops), then do
+        // ONLY in-place updates — never rebuild or close anything in view.
+        applyLive(msg.devices);
+        syncDevList();          // list rows updated in place, order stable
+        syncDrawer();           // open device panel values refreshed in place
+        syncGridCounts();       // tools/channels counts updated in place
+        if(typeof locateLiveUpdate==='function') locateLiveUpdate();
+        if(typeof syncDeviceSignal==='function') syncDeviceSignal();
+        const n=B.devices.length;
+        const byCh=c=>B.devices.filter(d=>d.channel===c).length;
+        $('stCount').textContent=n+' devices · '+byCh('bluetooth')+' BT · '+byCh('wifi')+' Wi-Fi · '+byCh('network')+' LAN';
+        const a=B.devices.filter(d=>d.severity==='alert').length;
+        const nw=msg.new_count||0;
+        $('stAlert').innerHTML=(a?'<span class="alertcount">⚠ '+a+' ALERT</span> ':'')
+          +(nw?'<span class="alertcount" style="background:var(--clear);color:#06222a">🆕 '+nw+' NEW</span>':'');
+      }
+    }catch(e){}
+  };
+  ws.onclose=()=>{ liveConnected=false; };
+  ws.onerror=()=>{ /* stay on demo data silently */ };
+}
+connectBackend();
+
+renderAll(); startRadar();
+</script>
+</body>
+</html>
