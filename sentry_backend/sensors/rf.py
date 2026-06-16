@@ -20,6 +20,12 @@ except Exception:
 
 
 # Band plan: (low_mhz, high_mhz, kind, category, severity, note)
+# IMPORTANT: every band here MUST fall within the actual sweep range
+# (SWEEP_START_MHZ..SWEEP_STOP_MHZ). A standard RTL-SDR tops out around 1.7 GHz,
+# so 2.4 GHz and 5.8 GHz are physically OUT OF RANGE for this hardware and are
+# deliberately NOT listed — they'd be dead entries that can never fire. Those
+# bands are instead covered by the Wi-Fi and Bluetooth sensors (2.4/5 GHz). A
+# wideband SDR (e.g. HackRF) would be needed to add them here.
 BANDS = [
     (430, 435, "433 MHz device", "unknown transmitter", "suspect",
      "433 ISM — sensors, remotes, cheap bugs"),
@@ -27,12 +33,8 @@ BANDS = [
      "868 ISM — IoT, alarms"),
     (900, 930, "915 MHz device", "unknown transmitter", "notable",
      "915 ISM — telemetry, IoT"),
-    (1700, 1800, "Cellular uplink burst", "audio bug", "suspect",
-     "GSM/LTE uplink — possible GSM bug or tracker calling out"),
-    (2400, 2500, "2.4 GHz transmitter", "camera", "suspect",
-     "2.4 GHz — Wi-Fi/BT cameras, video senders"),
-    (5645, 5945, "5.8 GHz analog video", "camera", "alert",
-     "5.8 GHz analog FM video — wireless camera"),
+    (1700, 1766, "Cellular uplink burst", "audio bug", "suspect",
+     "GSM/LTE uplink (up to the RTL-SDR's ~1.7 GHz ceiling) — possible GSM bug"),
 ]
 
 
