@@ -330,7 +330,7 @@
         <div id="sigCaption" style="font-size:10.5px;color:var(--dimmer);margin-top:8px;line-height:1.4"></div>
       </div>
       <div class="sigright" id="sigAI">
-        <div class="sidehd" style="color:var(--amber);margin-bottom:8px">✦ AI READING — real-time analysis</div>
+        <div class="sidehd" style="color:var(--amber);margin-bottom:8px">✦ DEVICE READOUT — from its real signal &amp; data</div>
         <div id="sigFeed"></div>
       </div>
     </div>
@@ -624,7 +624,7 @@ function drawRadar(){
   g.strokeStyle='#1E242C';g.lineWidth=2;
   for(let i=1;i<=3;i++){g.beginPath();g.arc(cx,cy,R*i/3,0,7);g.stroke();}
   g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
-  for(let i=1;i<=3;i++)g.fillText('~'+(maxRange*i/3).toFixed(1)+'m',cx+4,cy-R*i/3+14);
+  for(let i=1;i<=3;i++)g.fillText('≈'+(maxRange*i/3).toFixed(1)+'m',cx+4,cy-R*i/3+14);
   // outer dashed ring = LAN devices (found by IP, no RF range)
   g.strokeStyle='#22303a';g.setLineDash([3,4]);g.beginPath();g.arc(cx,cy,R*0.99,0,7);g.stroke();g.setLineDash([]);
   g.fillStyle='#3a4650';g.fillText('LAN ring (on your Wi-Fi · no RF range)',cx-R*0.7,cy-R*0.99-4);
