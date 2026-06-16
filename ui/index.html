@@ -708,12 +708,45 @@ function radarZoomBy(f){ radarZoom=Math.max(0.5,Math.min(8,radarZoom*f)); }
 })();
 
 // ---------- TOOLS GRID ----------
+// ---- Honest capability status for Tools & Channels (NO overselling) --------
+//  live     = works now on built-in hardware (Wi-Fi / Bluetooth / your LAN)
+//  partial  = part works now, the rest isn't built
+//  hardware = would work with the named add-on (RTL-SDR) — not present yet
+//  planned  = not built yet (needs hardware AND code) — shown as a roadmap item
+const CH_STATUS={wifi:'live',bluetooth:'live',rf:'hardware',cellular:'planned',
+  nfc:'planned',ir:'planned',acoustic:'planned',emf:'planned',optical:'planned',
+  thermal:'planned',gnss:'planned',power:'planned'};
+const TOOL_STATUS={wifi:'live',ble:'live',network:'partial',spectrum:'hardware',
+  rfbaseline:'hardware',burst:'hardware',df:'hardware',imsi:'planned',nfc:'planned',
+  ir:'planned',acoustic:'planned',emf:'planned',lens:'planned',thermal:'planned',
+  nljd:'planned',gnss:'planned',power:'planned',gpio:'planned'};
+const STATUS_BADGE={
+  live:{t:'LIVE',c:'#3FB984',bg:'#10271d'},
+  partial:{t:'PARTIAL',c:'#48C9E0',bg:'#0e2630'},
+  hardware:{t:'NEEDS RTL-SDR',c:'#F2A93B',bg:'#2a1f0c'},
+  planned:{t:'NOT BUILT YET',c:'#8FA3B8',bg:'#1b2128'}};
+const STATUS_LINE={
+  live:'Works now with your built-in hardware.',
+  partial:'Device discovery works now; the deeper analysis it describes is not built yet.',
+  hardware:'Needs an RTL-SDR dongle (~$45) — not detecting until one is plugged in.',
+  planned:'Not built yet — needs added hardware and code. Listed as a roadmap item, not a working tool.'};
+function chStatus(id){ return CH_STATUS[id]||'planned'; }
+function toolStatus(id){ return TOOL_STATUS[id]||'planned'; }
+function statusBadge(st){ const b=STATUS_BADGE[st]||STATUS_BADGE.planned;
+  return '<span style="font-family:Spline Sans Mono;font-size:8.5px;font-weight:700;letter-spacing:.05em;padding:2px 6px;border-radius:3px;color:'+b.c+';background:'+b.bg+';border:1px solid '+b.c+'66">'+b.t+'</span>'; }
+function statusBanner(st){ if(st==='live') return ''; const b=STATUS_BADGE[st];
+  return '<div style="background:'+b.bg+';border:1px solid '+b.c+'66;color:'+b.c+';padding:9px 11px;border-radius:7px;font-size:11.5px;line-height:1.45;margin-bottom:8px">'+statusBadge(st)+' &nbsp;'+(STATUS_LINE[st]||'')+'</div>'; }
+
 function renderToolGrid(){
   $('toolgrid').innerHTML=B.tools.map(t=>{
+    const st=toolStatus(t.id), live=(st==='live'||st==='partial');
     const n=B.devices.filter(d=>d.channel===t.channel).length;
     return '<div class="card" data-tool="'+t.id+'"><h3><span class="ic"></span>'+t.name+
-      '<span class="cc">'+(n>0?n+' hit'+(n===1?'':'s'):'clear')+'</span></h3>'+
-      '<p>'+t.what+'</p><div class="open">Open tool ›</div></div>';
+      '<span class="cc">'+statusBadge(st)+'</span></h3>'+
+      '<p>'+t.what+'</p>'+
+      (live?'<p style="font-size:10.5px;color:var(--dim);margin-top:5px">'+(n>0?n+' detection'+(n===1?'':'s')+' now':'clear right now')+'</p>'
+           :'<p style="font-size:10.5px;color:'+STATUS_BADGE[st].c+';margin-top:5px">'+STATUS_LINE[st]+'</p>')+
+      '<div class="open">Open ›</div></div>';
   }).join('');
   $('toolgrid').querySelectorAll('.card').forEach(c=>c.onclick=()=>openTool(c.dataset.tool));
 }
@@ -721,20 +754,23 @@ function renderToolGrid(){
 // ---------- CHANNELS GRID ----------
 function renderChannels(){
   $('chgrid').innerHTML=B.channels.map(c=>{
+    const st=chStatus(c.id), live=(st==='live'||st==='partial');
     const n=B.devices.filter(d=>d.channel===c.id).length;
-    const col=n>0?'var(--suspect)':'var(--clear)';
+    const col=!live?'var(--dimmer)':(n>0?'var(--suspect)':'var(--clear)');
     return '<div class="chcard" data-ch="'+c.id+'"><div class="top"><span class="dot" style="background:'+col+'"></span>'+
       '<h3>'+c.name+'</h3><span class="band">'+c.band+'</span></div>'+
-      '<div class="cnt" style="color:'+col+'">'+(n>0?n+' detection'+(n===1?'':'s'):'clear')+'</div>'+
+      '<div style="margin-top:6px">'+statusBadge(st)+'</div>'+
+      '<div class="cnt" style="color:'+col+'">'+(live?(n>0?n+' detection'+(n===1?'':'s'):'clear'):'not detecting')+'</div>'+
       '<p>'+c.catches+'</p>'+
-      '<div class="hw">Hardware: '+c.hw+'</div>'+
-      '<div class="open" style="margin-top:8px;font-family:Spline Sans Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open channel ›</div></div>';
+      '<div class="hw">Hardware: '+c.hw+(st!=='live'?' — '+STATUS_LINE[st]:'')+'</div>'+
+      '<div class="open" style="margin-top:8px;font-family:Spline Sans Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open ›</div></div>';
   }).join('');
   $('chgrid').querySelectorAll('.chcard').forEach(el=>el.onclick=()=>openChannel(el.dataset.ch));
 }
 
 function openChannel(cid){
   const c=B.channels.find(x=>x.id===cid); if(!c)return;
+  const st=chStatus(cid);
   const devs=B.devices.filter(d=>d.channel===cid);
   const tools=B.tools.filter(t=>t.channel===cid);
   const col=devs.length?'var(--suspect)':'var(--clear)';
@@ -746,12 +782,14 @@ function openChannel(cid){
         '<div><div class="tk">'+devTitle(d)+'</div><div class="ts">via '+methodShort(d)+' · '+d.ident+
           (d.rssi!=null?' · '+d.rssi+' dBm':'')+'</div></div>'+
         '<span class="tb">'+(distShort(d)==='—'?'›':distShort(d)+' ›')+'</span></div>').join('');
-  } else {
+  } else if(st==='live'||st==='partial'){
     leftRows='<div class="emptytool">No detections on this channel right now. The station keeps monitoring it.</div>';
+  } else {
+    leftRows='<div class="emptytool">This channel is <b>'+STATUS_BADGE[st].t+'</b> — '+STATUS_LINE[st]+' It is not scanning, so "clear" here means "not looking", not "nothing there".</div>';
   }
   const statusTxt = devs.length ? (devs.length+' detection'+(devs.length===1?'':'s')+' on this channel') : 'Clear — nothing detected';
   $('toolBody').innerHTML=
-    '<div class="tleft"><div class="sidehd" style="color:var(--cyan)">◉ CHANNEL STATUS</div>'+
+    '<div class="tleft">'+statusBanner(st)+'<div class="sidehd" style="color:var(--cyan)">◉ CHANNEL STATUS</div>'+
       '<div class="ablk"><div class="ah" style="color:'+col+'">'+statusTxt+'</div>'+
         '<div class="am" style="margin-top:6px">'+c.catches+'</div></div>'+
       leftRows+'</div>'+
@@ -773,6 +811,7 @@ function openChannel(cid){
 // ---------- TOOL OVERLAY (split: instrument | intel) ----------
 function openTool(id){
   const t=B.tools.find(x=>x.id===id); if(!t)return;
+  const st=toolStatus(id), live=(st==='live'||st==='partial');
   $('toolTitle').textContent=t.name;
   const devs=B.devices.filter(d=>d.channel===t.channel);
   // physical-search tools narrow to camera/bug-type only
@@ -787,13 +826,15 @@ function openTool(id){
         (d.rssi!=null?' · '+d.rssi+' dBm':'')+'</div></div>'+
       '<span class="tb">'+(distShort(d)==='—'?'›':distShort(d)+' ›')+'</span></div>'
     ).join('');
-  } else {
+  } else if(live){
     rows='<div class="emptytool">No detections on the '+t.name+' channel right now.<br><br>'+
       '<b>This tool only reads its own channel.</b> Other signal types show under their own tools.</div>';
+  } else {
+    rows='<div class="emptytool">This tool is <b>'+STATUS_BADGE[st].t+'</b>.<br><br>'+STATUS_LINE[st]+'</div>';
   }
 
   $('toolBody').innerHTML=
-    '<div class="tleft"><div class="sidehd" style="color:var(--cyan)">◉ '+t.name.toUpperCase()+' — LIVE</div>'+
+    '<div class="tleft">'+statusBanner(st)+'<div class="sidehd" style="color:var(--cyan)">◉ '+t.name.toUpperCase()+' &nbsp;'+statusBadge(st)+'</div>'+
       '<div style="font-size:11px;color:var(--dim)">'+(list.length?(list.length+' detection'+(list.length===1?'':'s')+' on this channel · tap one'):'')+'</div>'+
       rows+
       '<div style="font-size:10.5px;color:var(--dimmer);line-height:1.45;margin-top:6px;border-top:1px solid var(--line);padding-top:8px">'+t.what+
