@@ -8,14 +8,13 @@ up one sensor at a time (RF first, then Wi-Fi, then BLE, ...).
 
 from dataclasses import dataclass, field, asdict
 import time
-import hashlib
 
 
 # --- Honest range estimation -------------------------------------------------
 # We can estimate DISTANCE from signal strength (RSSI) with a standard
 # log-distance path-loss model. We canNOT measure DIRECTION with a single
-# omnidirectional antenna, so bearing is never claimed as a real measurement
-# (see _display_bearing / locnote below).
+# omnidirectional antenna, so bearing is never emitted at all — the UI lays
+# devices out by distance only (see locnote below).
 _TX_POWER_1M = -59.0    # typical RSSI (dBm) at 1 m for 2.4 GHz BLE/Wi-Fi
 _PATH_LOSS_N = 2.5      # indoor path-loss exponent (2 = free space, ~3 = walls)
 
@@ -34,15 +33,6 @@ def estimate_distance_m(rssi):
         dbm = dbm / 2.0 - 100.0
     dist = 10 ** ((_TX_POWER_1M - dbm) / (10 * _PATH_LOSS_N))
     return max(0.3, min(dist, 60.0))
-
-
-def _display_bearing(seed):
-    """A stable 0..359° angle derived from a device id, used ONLY to spread
-    devices apart on the radar so each is selectable. It is NOT a measured
-    direction — a single antenna cannot determine bearing.
-    """
-    h = hashlib.md5(seed.encode("utf-8")).hexdigest()
-    return int(h[:4], 16) % 360
 
 
 @dataclass
@@ -82,9 +72,11 @@ class Detection:
         d.setdefault("name", self.model if self.model != "—" else "Unnamed")
 
         # Per-device location estimate. Distance comes from this device's own
-        # RSSI (so each device differs); direction is honestly not measured.
-        seed = self.mac if self.mac and self.mac != "—" else f"dev{idx}"
-        d["bearing"] = self.bearing if self.bearing is not None else _display_bearing(seed)
+        # RSSI (so each device differs). DIRECTION is not measured at all — we no
+        # longer emit a (previously hash-derived, fake) bearing. The UI arranges
+        # devices by distance only; any on-screen angle is layout spacing, not a
+        # compass direction.
+        d["bearing"] = None
 
         if self.distance is not None:
             d["distance"] = round(float(self.distance), 1)
@@ -99,8 +91,8 @@ class Detection:
                 d["locnote"] = (
                     f"Distance is estimated from signal strength ({self.rssi} dBm, "
                     f"±{round(unc)} m). Direction is NOT measured — a single antenna "
-                    "can't find bearing; the angle only separates devices on the radar. "
-                    "Use Locate and move around to triangulate."
+                    "can't find bearing, so devices are shown by distance only. "
+                    "Use Locate and move around to home in by signal strength."
                 )
             else:
                 d["distance"] = 0

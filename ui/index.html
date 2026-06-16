@@ -230,7 +230,7 @@
   <!-- SCAN -->
   <div class="view on" id="scan">
     <div class="mappane">
-      <div class="ph"><span class="t">Directional Map</span>
+      <div class="ph"><span class="t">Proximity · distance only</span>
         <div class="legend">
           <span class="lg"><span class="lgd" style="background:var(--alert)"></span>Alert</span>
           <span class="lg"><span class="lgd" style="background:var(--suspect)"></span>Suspect</span>
@@ -244,7 +244,7 @@
         <button class="ox" id="zoomIn" style="padding:4px 12px">+ zoom</button>
         <span id="zoomLbl" style="font-size:10px;color:var(--dimmer)"></span>
       </div>
-      <div class="maphint">Click a dot to open that device. Rings = estimated distance from signal strength (live); cameras are squares; LAN devices sit on the dashed outer ring (found by IP, no RF range). Direction is NOT measured with built-in Bluetooth — angle only spreads devices apart. Use Locate for a live signal-strength meter (rising = closer).</div>
+      <div class="maphint">Tap a dot to open that device. Rings = estimated distance from signal strength (live) — nearer the centre = stronger/closer. Cameras are squares; LAN devices (found by IP, no radio range) sit on the dashed outer ring. <b>No direction is shown:</b> a single built-in antenna can't measure bearing, so the angle around the rings is just spacing to separate dots — it is NOT a compass. Use Locate to home in by signal strength; true direction needs the directional antenna (not installed).</div>
     </div>
     <div class="right">
       <div class="ch" id="devHdr">Detected devices</div>
@@ -337,8 +337,7 @@ const SEVRANK = {alert:3,suspect:2,notable:1};
 // Phone / small-screen detection — lighten animation and grow tap targets.
 const IS_SMALL = (window.matchMedia && window.matchMedia('(max-width:760px)').matches)
                  || (window.innerWidth||9999) <= 760;
-const RADAR_STEP = IS_SMALL ? 2.6 : 1.1;   // bigger angular step per frame…
-const RADAR_FPS  = IS_SMALL ? 20  : 60;    // …at fewer FPS = same sweep speed, far less work
+const RADAR_FPS  = IS_SMALL ? 20  : 60;    // throttle the proximity-map redraw on phones
 const SIG_FPS    = IS_SMALL ? 20  : 60;    // throttle the signal canvas redraw on phones
 let selectedDev = null;
 let locRAF = null;
@@ -589,49 +588,45 @@ function syncDrawer(){
 }
 
 // ---------- RADAR ----------
-let sweepAngle=0, radarRAF=null;
+let radarRAF=null;
 let radarZoom=1;               // 1 = 13 m at the edge; >1 zooms in
-let radarBlips=[];             // {id,x,y,r} for click hit-testing
+let radarBlips=[];             // {id,x,y,r} for click/tap hit-testing
+// PROXIMITY display — distance only, NO direction. Built-in BLE/Wi-Fi can't
+// measure bearing, so we never invent one: a device's RING = its estimated
+// distance from signal strength; its angle around the ring is even spacing to
+// keep dots separated and tappable, and means nothing directionally.
 function drawRadar(){
   const cv=$('radar'),g=cv.getContext('2d'),W=cv.width,H=cv.height,cx=W/2,cy=H/2,R=W*0.43;
   const maxRange=13/radarZoom;
   g.clearRect(0,0,W,H);
   radarBlips=[];
-  // rings + range labels (reflect zoom)
+  // concentric DISTANCE rings (proximity only) + range labels
   g.strokeStyle='#1E242C';g.lineWidth=2;
   for(let i=1;i<=3;i++){g.beginPath();g.arc(cx,cy,R*i/3,0,7);g.stroke();}
   g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
-  for(let i=1;i<=3;i++)g.fillText((maxRange*i/3).toFixed(1)+'m',cx+4,cy-R*i/3+14);
-  // outer ring = LAN devices (no RF range)
+  for(let i=1;i<=3;i++)g.fillText('~'+(maxRange*i/3).toFixed(1)+'m',cx+4,cy-R*i/3+14);
+  // outer dashed ring = LAN devices (found by IP, no RF range)
   g.strokeStyle='#22303a';g.setLineDash([3,4]);g.beginPath();g.arc(cx,cy,R*0.99,0,7);g.stroke();g.setLineDash([]);
   g.fillStyle='#3a4650';g.fillText('LAN ring (on your Wi-Fi · no RF range)',cx-R*0.7,cy-R*0.99-4);
-  g.strokeStyle='#181d24';
-  for(let a=0;a<360;a+=30){const r=a*Math.PI/180;g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+Math.cos(r)*R,cy+Math.sin(r)*R);g.stroke();}
-  // sweep beam
-  const sa=(sweepAngle-90)*Math.PI/180;
-  if(!IS_SMALL){   // the radial-gradient fill is the costliest part — skip it on phones
-    const grad=g.createRadialGradient(cx,cy,0,cx,cy,R);
-    grad.addColorStop(0,'rgba(72,201,224,0.18)');grad.addColorStop(1,'rgba(72,201,224,0)');
-    g.fillStyle=grad;g.beginPath();g.moveTo(cx,cy);g.arc(cx,cy,R,sa-0.42,sa+0.04);g.closePath();g.fill();
-  }
-  g.strokeStyle='rgba(72,201,224,0.5)';g.lineWidth=1.5;g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+Math.cos(sa)*R,cy+Math.sin(sa)*R);g.stroke();
   // center (you)
   g.fillStyle='#3FB984';g.beginPath();g.arc(cx,cy,7,0,7);g.fill();
   g.strokeStyle='rgba(63,185,132,.3)';g.lineWidth=2;g.beginPath();g.arc(cx,cy,12,0,7);g.stroke();
-  B.devices.forEach(d=>{
-    const ang=(d.bearing-90)*Math.PI/180;
-    const lan=(d.rssi==null);                          // LAN-only → outer ring
-    const rr=lan?R*0.99:R*Math.min(1,d.distance/maxRange);
+  g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';g.textAlign='center';g.fillText('YOU · distance only',cx,cy+26);g.textAlign='left';
+  const devs=B.devices, N=Math.max(1,devs.length);
+  devs.forEach((d,i)=>{
+    const lan=(d.rssi==null);                          // no RF range → outer ring
+    const rr=lan?R*0.99:R*Math.min(1,(d.distance||0)/maxRange);
+    // ANGLE = even spacing for layout only (NOT a measured direction).
+    const ang=(i/N)*Math.PI*2 - Math.PI/2;
     const x=cx+Math.cos(ang)*rr,y=cy+Math.sin(ang)*rr,c=SEVC[d.severity],sel=d.id===selectedDev;
-    const lit=Math.abs(((d.bearing-sweepAngle+540)%360)-180)<26;
-    const rad=sel?9:(lit?7:5);
+    const rad=sel?9:6;
     radarBlips.push({id:d.id,x,y,r:rad});
-    if(!lan){g.strokeStyle=c+'44';g.lineWidth=1;g.beginPath();g.arc(x,y,Math.max(6,d.uncertainty*6/radarZoom),0,7);g.stroke();}
-    g.fillStyle=c;g.shadowColor=c;g.shadowBlur=IS_SMALL?0:(sel?20:(lit?16:8));   // glow off on phones (heavy with many blips)
+    if(!lan && d.uncertainty){g.strokeStyle=c+'44';g.lineWidth=1;g.beginPath();g.arc(x,y,Math.max(5,d.uncertainty*5/radarZoom),0,7);g.stroke();}
+    g.fillStyle=c;g.shadowColor=c;g.shadowBlur=IS_SMALL?0:(sel?18:7);
     if(d.category==='camera'){g.fillRect(x-rad,y-rad,rad*2,rad*2);}   // cameras = squares
     else{g.beginPath();g.arc(x,y,rad,0,7);g.fill();}
     g.shadowBlur=0;
-    if(sel){g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.arc(x,y,14,0,7);g.stroke();}
+    if(sel){g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.arc(x,y,13,0,7);g.stroke();}
   });
 }
 let _radarLast=0;
@@ -639,8 +634,7 @@ function radarLoop(ts){
   radarRAF=requestAnimationFrame(radarLoop);
   if(ts && (ts-_radarLast) < (1000/RADAR_FPS)) return;   // cap FPS — lighter on phones
   _radarLast=ts||0;
-  sweepAngle=(sweepAngle+RADAR_STEP)%360;
-  drawRadar();
+  drawRadar();   // redraw so dots move between distance rings live as you walk
 }
 function startRadar(){ if(!radarRAF) radarRAF=requestAnimationFrame(radarLoop); }
 function stopRadar(){ if(radarRAF){cancelAnimationFrame(radarRAF);radarRAF=null;} }
