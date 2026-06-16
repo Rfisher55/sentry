@@ -157,6 +157,12 @@
   .sigbar{display:inline-flex;gap:2px;align-items:flex-end;margin-left:auto;height:13px}
   .sigseg{width:4px;border-radius:1px;background:#222a33}
   .dev .br{margin-left:8px}
+  /* LIVE vs DEMO/OFFLINE banner — hidden when live, loud when not */
+  #connBanner{flex:none;display:none;text-align:center;font-family:'Spline Sans Mono';
+    font-size:12px;font-weight:700;letter-spacing:.04em;padding:8px 12px;line-height:1.4}
+  #connBanner.show{display:block}
+  #connBanner.demo{background:#3a1512;color:#ff9a8f;border-bottom:1px solid #5a1f1a}
+  #connBanner.lost{background:#3a2c12;color:#f2c777;border-bottom:1px solid #5a451f}
 
   /* ===== MOBILE / TOUCH (phone) ===================================== */
   /* Kill the 300ms tap delay + double-tap-zoom on every control. */
@@ -226,6 +232,9 @@
     </div>
     <button class="rescan" id="rescan">RE-SCAN</button>
   </div>
+
+  <!-- LIVE vs DEMO/OFFLINE banner — never show fake data silently -->
+  <div id="connBanner"></div>
 
   <!-- SCAN -->
   <div class="view on" id="scan">
@@ -1196,6 +1205,18 @@ function renderAll(){
 // If the SENTRY backend is running, use its live detections. Otherwise the
 // built-in demo data stays (so the UI always works).
 let liveConnected=false;
+let everLive=false;
+// Never show demo/fake data silently: a loud banner whenever we are NOT
+// receiving the live feed. Distinguishes "never connected → built-in DEMO data"
+// from "was live, connection dropped → showing the LAST data, not current".
+function setConnState(live){
+  const b=$('connBanner'); if(!b) return;
+  if(live){ everLive=true; b.className=''; b.textContent=''; return; }
+  b.className = everLive ? 'show lost' : 'show demo';
+  b.textContent = everLive
+    ? '● LIVE FEED LOST — showing the LAST received data, not current. Reconnect the SENTRY backend or check Wi-Fi.'
+    : '● DEMO DATA — NOT LIVE. Built-in sample data only; the SENTRY backend feed isn’t connected, so nothing here is a real detection.';
+}
 function showSensorStatus(sensors){
   const on=sensors.filter(s=>s.online).map(s=>s.channel.toUpperCase());
   const off=sensors.filter(s=>!s.online).map(s=>s.channel.toUpperCase());
@@ -1221,7 +1242,7 @@ function connectBackend(){
     try{
       const msg=JSON.parse(ev.data);
       if(msg && Array.isArray(msg.devices)){
-        liveConnected=true;
+        liveConnected=true; setConnState(true);   // real data arrived → hide DEMO banner
         if(Array.isArray(msg.sensors)){ B._sensors=msg.sensors; showSensorStatus(msg.sensors); }
         // merge into the grace roster (stable order, no random drops), then do
         // ONLY in-place updates — never rebuild or close anything in view.
@@ -1241,9 +1262,10 @@ function connectBackend(){
       }
     }catch(e){}
   };
-  ws.onclose=()=>{ liveConnected=false; };
-  ws.onerror=()=>{ /* stay on demo data silently */ };
+  ws.onclose=()=>{ liveConnected=false; setConnState(false); };   // feed dropped → show banner
+  ws.onerror=()=>{ setConnState(false); };
 }
+setConnState(false);   // start in DEMO state until real data actually arrives
 connectBackend();
 
 renderAll(); startRadar();
