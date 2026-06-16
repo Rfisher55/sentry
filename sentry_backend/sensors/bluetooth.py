@@ -123,6 +123,11 @@ class BLESensor(Sensor):
             d = self._classify(rec, now)
             if d:
                 dets.append(d)
+        # Honesty: phones/tags rotate their BLE address for privacy, so the count
+        # is approximate — the same device can appear more than once and can't be
+        # linked passively. We merge ones that keep a stable advertised name.
+        self._note = ("BLE addresses rotate for privacy — device count is approximate; "
+                      "the same phone/tag may appear more than once.")
         return dets
 
     def _classify(self, rec, now):

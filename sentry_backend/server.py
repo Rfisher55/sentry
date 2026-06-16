@@ -123,6 +123,21 @@ class Fusion:
     (radar blip stays put, the open intel drawer keeps updating) instead of the
     list reshuffling every tick.
     """
+    def _dedup_key(self, ui):
+        """Key for collapsing PROVABLE duplicates. A BLE device that rotates its
+        MAC but keeps its advertised NAME (model) is the same device — merge it.
+        Trackers and anonymous/rotating beacons (no real advertised name) keep a
+        unique key: passive BLE can't link randomized MACs, so we don't pretend
+        to — that over-count is a protocol limit, not something to fake away."""
+        model = (ui.get("model") or "").strip()
+        named = bool(model) and model != "—"
+        if ui.get("channel") == "bluetooth" and ui.get("category") != "tracker" and named:
+            return ("ble-name", model.lower())
+        mac = (ui.get("mac") or "").lower()
+        if mac and mac != "—" and not identify.is_random_mac(mac):
+            return ("mac", mac)
+        return ("id", ui.get("id"))
+
     def build(self, all_dets):
         devices = []
         for i, d in enumerate(all_dets):
@@ -134,12 +149,27 @@ class Fusion:
                 ui["id"] = f"{d.channel}-idx{i}"
             ui["counter"] = _counter_for(d.category)
             devices.append(ui)
-        # sort by signal strength: strongest (closest) first; unknown RSSI last
-        def by_signal(x):
+
+        # Collapse provable duplicates, keeping the strongest-signal instance.
+        def sig(x):
             r = x.get("rssi")
-            return -r if isinstance(r, (int, float)) else 1e9
-        devices.sort(key=by_signal)
-        return devices
+            return r if isinstance(r, (int, float)) else -999
+        best = {}
+        for ui in devices:
+            k = self._dedup_key(ui)
+            if k not in best or sig(ui) > sig(best[k]):
+                best[k] = ui
+        deduped = []
+        for k, ui in best.items():
+            if k[0] == "ble-name":
+                # stable id derived from the NAME, so the merged entry doesn't
+                # flip ids (and flicker) as the strongest underlying MAC changes.
+                ui["id"] = "blename-" + (re.sub(r"[^0-9a-z]", "", k[1]) or "x")
+            deduped.append(ui)
+
+        # sort by signal strength: strongest (closest) first; unknown RSSI last
+        deduped.sort(key=lambda x: (-sig(x)) if isinstance(x.get("rssi"), (int, float)) else 1e9)
+        return deduped
 
 
 class Station:
