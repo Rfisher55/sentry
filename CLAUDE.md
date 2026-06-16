@@ -14,6 +14,11 @@ Pelican case. Built as a **learning + demonstration** project.
 - **Detect-only.** SENTRY receives and analyzes signals devices openly broadcast,
   and helps find devices in the user's own space. It NEVER jams, replays, clones,
   emulates, or attacks any device, and never decodes private/encrypted content.
+  One honest exception to "passive": the LAN sensor (`network.py`) ACTIVELY probes
+  the local subnet (pings, TCP port connects, SSDP) to find on-network devices.
+  It reads nothing private and attacks nothing, but it is active reconnaissance —
+  the UI discloses this, and it must only be used on a network you own/are
+  authorised on.
 - **Be honest about limits.** Surface coverage gaps. A silent device (recording to
   local storage, radio off) emits nothing and can't be found by RF/Wi-Fi/BT —
   say so. Don't oversell; this is not a guarantee against professional surveillance.

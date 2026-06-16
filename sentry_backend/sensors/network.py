@@ -12,9 +12,14 @@ Pure-Python, no nmap required:
   4. identify vendor (MAC OUI) and device type, flagging likely cameras with the
      concrete evidence ("port 554 open + Dahua MAC").
 
-Runs in a background worker so a slow sweep never stalls the live feed. Listen/
-connect-only: it makes ordinary TCP connections, reads nothing private, attacks
-nothing.
+Runs in a background worker so a slow sweep never stalls the live feed.
+
+SCOPE NOTE (honesty): unlike the RF/Wi-Fi/BLE sensors, which passively receive,
+this sensor ACTIVELY probes — it pings every host on the /24, opens TCP
+connections to common ports, and sends an SSDP query. It still reads nothing
+private and attacks nothing, but it is active reconnaissance, so it must only be
+used on a network you own or are authorised to test. The UI discloses this in
+the sensor status note.
 """
 
 from sentry_backend.sensor import Sensor, Detection
@@ -69,8 +74,10 @@ class NetworkSensor(Sensor):
         if self._started:
             return
         self._started = True
-        self._note = "Scanning %s.0/24 for devices on your Wi-Fi (every %ds)." % (
-            self._subnet, int(self.SCAN_PERIOD))
+        self._note = ("ACTIVE scan of %s.0/24 every %ds — pings every host, makes TCP "
+                      "connections to common ports, and sends an SSDP query. This is "
+                      "active probing, not passive listening. Use only on a network you "
+                      "own or are authorised to test." % (self._subnet, int(self.SCAN_PERIOD)))
         self._thread = threading.Thread(target=self._run_loop, daemon=True,
                                         name="lan-scanner")
         self._thread.start()
@@ -190,8 +197,9 @@ class NetworkSensor(Sensor):
             with cf.ThreadPoolExecutor(max_workers=40) as ex:
                 results = list(ex.map(fingerprint, table.items()))
 
-        self._note = "Found %d device(s) on %s.0/24 (your Wi-Fi network)." % (
-            len(results), self._subnet)
+        self._note = ("Found %d device(s) on %s.0/24 by ACTIVE probing (pings + TCP "
+                      "port connects + SSDP) — not passive. Use only on a network you "
+                      "own/are authorised on." % (len(results), self._subnet))
 
         dets = []
         for ip, mac, ports, host in results:
