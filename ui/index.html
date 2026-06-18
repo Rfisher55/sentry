@@ -225,6 +225,7 @@
       <button class="tab" data-tab="tools">Tools</button>
       <button class="tab" data-tab="channels">Channels</button>
       <button class="tab" data-tab="radio">Radio</button>
+      <button class="tab" data-tab="network">Network</button>
     </div>
     <div class="status">
       <span>MONITORING <b>LIVE</b></span>
@@ -333,6 +334,30 @@
         <div id="radioStatus" style="font-family:'Spline Sans Mono';font-size:12px;color:var(--ink);min-height:16px"></div>
         <div id="radioLog" style="font-family:'Spline Sans Mono';font-size:10.5px;color:var(--dimmer);line-height:1.5"></div>
         <div style="font-size:10px;color:var(--dimmer);line-height:1.4">Honest limits: receives ANALOG, unencrypted signals only, ~25 MHz–1.75 GHz. It cannot reach 2.4/5 GHz (Wi-Fi/Bluetooth audio, drones — needs a HackRF), cannot decode encrypted or digital (DMR/P25), and never tunes cellular. The dongle is single-app — STOP releases it back to the surveillance sweep.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NETWORK INSPECTOR + SECURITY LAB (your own network only) -->
+  <div class="view" id="network">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
+      <div class="gridhd">Network Inspector &amp; Security Lab · <b style="color:var(--amber)">YOUR OWN network/devices only</b> — active port scan (authorised networks only)</div>
+      <div id="netCapture" style="font-family:'Spline Sans Mono';font-size:11px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px;color:var(--dim)"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+        <span style="color:var(--cyan);font-weight:600">SCAN AN IP</span>
+        <input id="netIp" type="text" placeholder="192.168.1.1" style="width:130px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 7px;font-family:inherit;font-size:11px">
+        <button id="netScanBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">▶ SCAN PORTS</button>
+        <span style="color:var(--dimmer);font-size:10px">Private/LAN addresses only (10.x, 192.168.x, 172.16–31.x). Public IPs are refused.</span>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:230px">
+          <div class="sidehd" style="color:var(--clear);margin-bottom:6px">◉ Devices on your LAN — tap to scan</div>
+          <div id="netDevList" style="display:flex;flex-direction:column;gap:5px"></div>
+        </div>
+        <div style="flex:1.4;min-width:300px">
+          <div class="sidehd" style="color:var(--amber);margin-bottom:6px">✦ Security report</div>
+          <div id="netReport" style="font-family:'Spline Sans Mono';font-size:11.5px;color:var(--dimmer)">Select a device (or type an IP) and SCAN PORTS to see its open services, what it exposes in the clear, and how to fix risks.</div>
+        </div>
       </div>
     </div>
   </div>
@@ -488,6 +513,7 @@ document.querySelectorAll('.tab').forEach(t=>{
     if(t.dataset.tab==='scan'){startRadar();}else{stopRadar();}
     if(t.dataset.tab==='radio'){ if(typeof startRadio==='function') startRadio(); }
     else { if(typeof stopRadio==='function') stopRadio(); }
+    if(t.dataset.tab==='network'){ if(typeof startNetwork==='function') startNetwork(); }
   };
 });
 
@@ -1423,6 +1449,92 @@ function rfTuneNow(){ if(!rfOnline())return; rfSend({cmd:'rf_tune',center_mhz:rf
 let rfRadio={center:98.0, span:2400000, demod:'WFM', audio:false};
 let rfScanning=false;          // true while the Radio tab is sweeping/listening
 
+// ================= NETWORK INSPECTOR + SECURITY LAB (own network) =============
+let _netWired=false, _netScanning=false;
+const SEVCOL={high:'#E5564B',medium:'#F2A93B',low:'#48C9E0',info:'#5A6470'};
+function netRenderCapture(){
+  const el=$('netCapture'); if(!el) return;
+  const c=B._net_capture;
+  if(!c){ el.innerHTML='<span style="color:var(--dimmer)">Checking live-capture availability…</span>'; return; }
+  if(c.available){
+    el.innerHTML='<span style="color:var(--clear)">● LIVE TRAFFIC CAPTURE available</span> ('+c.tool+') — readable traffic, DNS log, per-device phone-home and top-talkers can run on networks you own.';
+  } else {
+    el.innerHTML='<span style="color:var(--amber)">○ Live packet capture OFFLINE</span> — the port scan + risk analysis below work without it. '
+      +'To unlock live traffic / DNS / phone-home / top-talkers, install: <b>'+(c.needs||[]).join('</b> and <b>')+'</b>.<br>'
+      +'<span style="color:var(--dimmer)">'+(c.how||'')+'</span>';
+  }
+}
+function netLanDevices(){ return B.devices.filter(d=>d.channel==='network'&&d.ip); }
+function netBuildDevList(){
+  const host=$('netDevList'); if(!host) return;
+  const devs=netLanDevices();
+  if(!devs.length){ host.innerHTML='<span style="color:var(--dimmer);font-size:11px">No LAN devices found yet — the network scan is still discovering, or none are on this network.</span>'; return; }
+  host.innerHTML='';
+  devs.slice(0,40).forEach(d=>{
+    const row=document.createElement('button');
+    row.style.cssText="text-align:left;background:#0E141b;border:1px solid #1b232c;border-radius:6px;padding:6px 9px;cursor:pointer;color:var(--ink);font-family:'Spline Sans Mono';font-size:11px";
+    row.innerHTML='<b>'+d.ip+'</b> · '+(d.maker&&d.maker!=='Not announced'?d.maker:(d.device_type||'device'))
+      +'<span style="color:var(--dimmer);font-size:10px"> · '+(d.mac||'')+'</span>';
+    row.onclick=()=>{ const f=$('netIp'); if(f)f.value=d.ip; netScan(d.ip); };
+    host.appendChild(row);
+  });
+}
+function netScan(ip){
+  if(!ip){ ip=($('netIp')||{}).value; }
+  ip=(ip||'').trim(); if(!ip) return;
+  _netScanning=true;
+  const rep=$('netReport'); if(rep) rep.innerHTML='<span style="color:var(--cyan)">◌ Scanning '+ip+' … (TCP connect scan, a few seconds)</span>';
+  rfSend({cmd:'net_scan_device', ip:ip});
+}
+function netRenderReport(r){
+  _netScanning=false;
+  const el=$('netReport'); if(!el) return;
+  if(!r){ el.textContent='No result.'; return; }
+  if(r.error){ el.innerHTML='<span style="color:var(--alert)">⚠ '+r.error+'</span>'; return; }
+  let h='<div style="color:var(--ink);font-weight:600;margin-bottom:4px">'+r.ip
+    +(r.vendor?' · '+r.vendor:'')+(r.likely_camera?' <span style="color:var(--alert)">📷 likely camera/recorder</span>':'')+'</div>';
+  // services / open ports
+  if(r.open_ports&&r.open_ports.length){
+    h+='<div style="margin:5px 0"><span style="color:var(--cyan)">Open ports:</span> '
+      +r.services.map(s=>'<span style="color:'+(s.encrypted?'#3FB984':'#F2A93B')+'">'+s.port+' '+s.service+(s.encrypted?' 🔒':' ⚠')+'</span>').join(' · ')+'</div>';
+  } else {
+    h+='<div style="margin:5px 0;color:var(--clear)">No common TCP ports open — minimal exposure. ✓</div>';
+  }
+  // exposure
+  if(r.plaintext&&r.plaintext.length)
+    h+='<div style="margin:4px 0;color:var(--amber)">⚠ In the CLEAR on your LAN: '+r.plaintext.join(', ')+'</div>';
+  if(r.encrypted&&r.encrypted.length)
+    h+='<div style="margin:4px 0;color:var(--clear)">🔒 Encrypted: '+r.encrypted.join(', ')+'</div>';
+  if(r.camera_tells&&r.camera_tells.length)
+    h+='<div style="margin:4px 0;color:var(--alert)">📷 Camera tells: '+r.camera_tells.join(', ')+'</div>';
+  // findings (risk + fix)
+  if(r.findings&&r.findings.length){
+    h+='<div style="color:var(--cyan);margin:7px 0 3px">Risk findings &amp; fixes:</div>';
+    r.findings.forEach(f=>{
+      const c=SEVCOL[f.severity]||'#5A6470';
+      h+='<div style="border-left:3px solid '+c+';padding:3px 0 5px 8px;margin-bottom:5px">'
+        +'<b style="color:'+c+'">'+f.severity.toUpperCase()+'</b> · '+f.service
+        +'<div style="color:var(--dim)">'+f.what+'</div>'
+        +'<div style="color:var(--clear);font-size:10.5px">→ '+f.fix+'</div></div>';
+    });
+  }
+  // learn mode
+  if(r.learn)
+    h+='<div style="margin-top:7px;background:#0E141b;border:1px solid #1b232c;border-radius:6px;padding:7px 9px;color:var(--dim);font-size:11px"><b style="color:var(--cyan)">Learn:</b> '+r.learn+'</div>';
+  el.innerHTML=h;
+}
+function netWire(){
+  if(_netWired)return; _netWired=true;
+  const b=$('netScanBtn'), ip=$('netIp');
+  if(b) b.onclick=()=>netScan();
+  if(ip) ip.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();netScan();} });
+}
+function startNetwork(){
+  netWire(); B._net_capture=B._net_capture||null; netRenderCapture(); netBuildDevList();
+  rfSend({cmd:'net_capture_status'});
+}
+
+
 // ================= RADIO TAB (scan bands · spectrum · listen) =================
 let radioRAF=null, radioWired=false, _radioBandsBuilt=false, _radioChanBuilt=false, rfScanAuto=false;
 function radioBands(){ return (B._rf_meta&&B._rf_meta.scan_bands) || [
@@ -1902,6 +2014,8 @@ function connectBackend(){
       // arrive as their own typed messages, faster than the device-state tick.
       if(msg && msg.type==='rf_tuned'){ B._rf_tuned=msg.tuned; return; }
       if(msg && msg.type==='rf_scan'){ B._rf_scan=msg.scan; return; }
+      if(msg && msg.type==='net_capture'){ B._net_capture=msg.status; if(typeof netRenderCapture==='function') netRenderCapture(); return; }
+      if(msg && msg.type==='net_scan'){ if(typeof netRenderReport==='function') netRenderReport(msg.report); return; }
       if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
       if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){

@@ -77,6 +77,21 @@ from sentry_backend.sensors.wifi import WiFiSensor
 from sentry_backend.sensors.bluetooth import BLESensor
 from sentry_backend.sensors.network import NetworkSensor
 from sentry_backend import identify
+from sentry_backend import inspector
+
+
+def _is_private_ip(ip):
+    """Only addresses on a private/LAN range may be scanned — your own network.
+    Refuses public/internet addresses outright (legal guardrail)."""
+    try:
+        parts = [int(x) for x in str(ip).split(".")]
+    except Exception:
+        return False
+    if len(parts) != 4 or any(p < 0 or p > 255 for p in parts):
+        return False
+    a, b = parts[0], parts[1]
+    return (a == 10 or (a == 192 and b == 168) or (a == 172 and 16 <= b <= 31)
+            or a == 127)
 
 
 SENSORS = [RFSensor(), WiFiSensor(), BLESensor(), NetworkSensor()]
@@ -266,6 +281,26 @@ class Station:
         backs the UI's instant REFRESH button."""
         self._last_scan = {}
 
+    def _vendor_for_ip(self, ip):
+        for d in self.latest.get("devices", []):
+            if d.get("ip") == ip:
+                return d.get("maker") or d.get("model") or ""
+        return ""
+
+    def scan_device(self, ip):
+        """Port-scan + assess ONE device on the LAN (own network only). Blocking —
+        the server calls it off the event loop. Refuses non-private addresses."""
+        ip = str(ip or "").strip()
+        if not _is_private_ip(ip):
+            return {"error": "Only private/LAN addresses (your own network) can be "
+                             "scanned — public/internet addresses are refused.", "ip": ip}
+        vendor = self._vendor_for_ip(ip)
+        try:
+            ports = inspector.scan_ports(ip)
+        except Exception as e:
+            return {"error": str(e), "ip": ip}
+        return inspector.assess_device(ip, vendor, ports)
+
     def rf_command(self, cmd):
         """Handle a live RF control message from the UI (tuned view / audio).
         No-ops safely if the RF sensor is offline. Returns a small ack dict."""
@@ -341,10 +376,26 @@ async def _serve(station):
                             cmd = json.loads(s)
                         except Exception:
                             continue
-                        if isinstance(cmd, dict) and str(cmd.get("cmd", "")).startswith("rf_"):
+                        if not isinstance(cmd, dict):
+                            continue
+                        cn = str(cmd.get("cmd", ""))
+                        if cn.startswith("rf_"):
                             ack = station.rf_command(cmd)
                             try:
                                 await ws.send(json.dumps(ack))
+                            except Exception:
+                                pass
+                        elif cn == "net_capture_status":
+                            try:
+                                await ws.send(json.dumps({"type": "net_capture",
+                                                          "status": inspector.capture_status()}))
+                            except Exception:
+                                pass
+                        elif cn == "net_scan_device":
+                            # port scan is blocking (~seconds) — run off the event loop
+                            report = await asyncio.to_thread(station.scan_device, cmd.get("ip"))
+                            try:
+                                await ws.send(json.dumps({"type": "net_scan", "report": report}))
                             except Exception:
                                 pass
             except Exception:
