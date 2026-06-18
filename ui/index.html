@@ -1408,7 +1408,8 @@ let radioRAF=null, radioWired=false, _radioBandsBuilt=false;
 function radioBands(){ return (B._rf_meta&&B._rf_meta.scan_bands) || [
   {key:'fm',label:'FM broadcast',demod:'WFM'},{key:'air',label:'Airband',demod:'AM'},
   {key:'wx',label:'Weather',demod:'NFM'},{key:'frs',label:'FRS/GMRS',demod:'NFM'},
-  {key:'ham2m',label:'Ham 2m',demod:'NFM'},{key:'ham70',label:'Ham 70cm',demod:'NFM'}]; }
+  {key:'ham2m',label:'Ham 2m',demod:'NFM'},{key:'ham70',label:'Ham 70cm',demod:'NFM'},
+  {key:'ism315',label:'315 ISM (fobs/TPMS)',demod:'NFM'},{key:'ism433',label:'433 ISM (fobs/sensors)',demod:'NFM'}]; }
 
 function radioBuildBands(){
   const host=$('radioBands'); if(!host||_radioBandsBuilt)return;

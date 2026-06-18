@@ -48,12 +48,17 @@ except Exception:
 # (TUNER_LOW_MHZ..TUNER_HIGH_MHZ). 2.4/5 GHz are above an R820T's reach and are
 # deliberately absent — they're covered by the Wi-Fi/BLE sensors instead.
 BANDS = [
+    (313, 317, "315 MHz device", "unknown transmitter", "suspect",
+     "315 ISM — key fobs, TPMS, garage/gate remotes, sensors (North America). Short "
+     "bursts (only while a button is pressed). Detected as ENERGY only — SENTRY never "
+     "decodes, stores, clones, or replays it."),
     (430, 435, "433 MHz device", "unknown transmitter", "suspect",
-     "433 ISM — sensors, remotes, cheap bugs"),
+     "433 ISM — key fobs, remotes, weather/IoT sensors, cheap bugs. Often short bursts. "
+     "Detected as energy only — never decoded, cloned, or replayed."),
     (860, 870, "868 MHz device", "unknown transmitter", "notable",
-     "868 ISM — IoT, alarms"),
+     "868 ISM — IoT, alarms, sensors (EU). Energy detected only; not decoded."),
     (902, 928, "915 MHz device", "unknown transmitter", "notable",
-     "915 ISM — telemetry, IoT"),
+     "915 ISM — telemetry, IoT, sensors. Energy detected only; not decoded."),
     (1710, 1750, "Cellular-band transmitter", "unknown transmitter", "notable",
      "Uplink energy (within the R820T's ~1.75 GHz ceiling) — most likely a nearby "
      "phone; a GSM/LTE bug also calls out here. Not a bug on its own — identify up close."),
@@ -77,6 +82,11 @@ SCAN_BANDS = {
     "frs":   {"label": "FRS/GMRS",     "lo": 462.0, "hi": 467.8,  "step_khz": 12.5,  "demod": "NFM", "span_hz": 240000,  "half_bw": 7000},
     "ham2m": {"label": "Ham 2m",       "lo": 144.0, "hi": 148.0,  "step_khz": 12.5,  "demod": "NFM", "span_hz": 240000,  "half_bw": 7000},
     "ham70": {"label": "Ham 70cm",     "lo": 440.0, "hi": 450.0,  "step_khz": 12.5,  "demod": "NFM", "span_hz": 240000,  "half_bw": 7000},
+    # ISM fob/remote bands — park here and press a fob/remote to catch the burst.
+    # Detection only (a spike + lock); the audio is just the raw OOK click, and
+    # SENTRY never decodes, stores, clones, or replays the code.
+    "ism315": {"label": "315 ISM (fobs/TPMS)",   "lo": 314.85, "hi": 315.15, "step_khz": 25.0, "demod": "NFM", "span_hz": 240000, "half_bw": 30000},
+    "ism433": {"label": "433 ISM (fobs/sensors)", "lo": 433.0,  "hi": 434.8,  "step_khz": 25.0, "demod": "NFM", "span_hz": 240000, "half_bw": 30000},
 }
 
 
@@ -153,7 +163,8 @@ class RFSensor(Sensor):
         self.sdr.gain = "auto"
         self._note = (
             "RTL-SDR R820T online — tuner covers ~%d MHz–%.2f GHz. SWEEP watches the "
-            "surveillance ISM/cellular bands (433/868/915 MHz, cellular uplink); the live "
+            "surveillance ISM/cellular bands (315/433/868/915 MHz key-fob/sensor + cellular "
+            "uplink); the live "
             "TUNED view lets you inspect & listen anywhere in range (try FM ~100 MHz). "
             "Only one tuner: tuning/listening pauses the background sweep. It CANNOT see "
             "2.4/5 GHz Wi-Fi/Bluetooth/video (above range — use the Wi-Fi & BLE sensors), "
