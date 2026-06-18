@@ -730,8 +730,16 @@ const STATUS_LINE={
   partial:'Device discovery works now; the deeper analysis it describes is not built yet.',
   hardware:'Needs an RTL-SDR dongle (~$45) — not detecting until one is plugged in.',
   planned:'Not built yet — needs added hardware and code. Listed as a roadmap item, not a working tool.'};
-function chStatus(id){ return CH_STATUS[id]||'planned'; }
-function toolStatus(id){ return TOOL_STATUS[id]||'planned'; }
+// reflect REAL runtime state: if the sensor for this channel is actually online
+// (e.g. an RTL-SDR got plugged in), show LIVE — don't keep saying "needs hardware".
+function sensorOnline(ch){ return (B._sensors||[]).some(s=>s.channel===ch && s.online); }
+function chStatus(id){ return sensorOnline(id) ? 'live' : (CH_STATUS[id]||'planned'); }
+const TOOL_CH={spectrum:'rf',rfbaseline:'rf',burst:'rf',df:'rf',wifi:'wifi',ble:'bluetooth',network:'network'};
+function toolStatus(id){
+  const ch=TOOL_CH[id];
+  if(ch && sensorOnline(ch)) return id==='network' ? 'partial' : 'live';
+  return TOOL_STATUS[id]||'planned';
+}
 function statusBadge(st){ const b=STATUS_BADGE[st]||STATUS_BADGE.planned;
   return '<span style="font-family:Spline Sans Mono;font-size:8.5px;font-weight:700;letter-spacing:.05em;padding:2px 6px;border-radius:3px;color:'+b.c+';background:'+b.bg+';border:1px solid '+b.c+'66">'+b.t+'</span>'; }
 function statusBanner(st){ if(st==='live') return ''; const b=STATUS_BADGE[st];

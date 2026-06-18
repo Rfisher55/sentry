@@ -86,7 +86,7 @@ SENSORS = [RFSensor(), WiFiSensor(), BLESensor(), NetworkSensor()]
 TICK_INTERVAL = 1.5
 # Per-channel minimum seconds between actual scans. 0 = read every tick (the
 # sensor self-throttles its own real work in a background thread).
-SENSOR_INTERVAL = {"bluetooth": 0.0, "network": 0.0, "wifi": 8.0, "rf": 8.0}
+SENSOR_INTERVAL = {"bluetooth": 0.0, "network": 0.0, "wifi": 8.0, "rf": 0.0}
 
 # "New device" baseline: everything present in the first WARMUP seconds is the
 # baseline; anything appearing later is flagged NEW (hotel/Airbnb workflow).

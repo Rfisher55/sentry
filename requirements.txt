@@ -1,4 +1,5 @@
 websockets>=12.0
 numpy>=1.24
-pyrtlsdr>=0.3.0        # RF spectrum (RTL-SDR) — optional until you have the SDR
+pyrtlsdr[lib]>=0.4.0   # RF spectrum (RTL-SDR). [lib] bundles the native librtlsdr
+                       # DLLs for Windows (install Zadig WinUSB driver for the dongle).
 bleak>=0.21            # Bluetooth LE scanning — optional
