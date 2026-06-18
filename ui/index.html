@@ -1025,6 +1025,7 @@ function sensorNote(ch){ const s=(B._sensors||[]).find(x=>x.channel===ch); retur
 function liveHint(ch,st){ const note=sensorNote(ch); return note || STATUS_LINE[st] || ''; }
 const TOOL_CH={spectrum:'rf',rfbaseline:'rf',burst:'rf',df:'rf',wifi:'wifi',ble:'bluetooth',network:'network'};
 function toolStatus(id){
+  if(id==='acoustic') return 'live';   // real laptop-mic ultrasonic detector (browser)
   const ch=TOOL_CH[id];
   if(ch && sensorOnline(ch)) return id==='network' ? 'partial' : 'live';
   return TOOL_STATUS[id]||'planned';
@@ -1108,6 +1109,7 @@ function openChannel(cid){
 // ---------- TOOL OVERLAY (split: instrument | intel) ----------
 function openTool(id){
   const t=B.tools.find(x=>x.id===id); if(!t)return;
+  if(id==='acoustic'){ openAcoustic(t); return; }   // real laptop-mic ultrasonic detector
   const st=toolStatus(id), live=(st==='live'||st==='partial');
   $('toolTitle').textContent=t.name;
   const devs=B.devices.filter(d=>d.channel===t.channel);
@@ -1147,6 +1149,73 @@ function openTool(id){
   if(first){first.classList.add('sel');showIntel(first.dataset.id);}
   $('toolOverlay').classList.add('on');
 }
+// ================= ACOUSTIC / ULTRASONIC DETECTOR (laptop mic, real) =========
+// Uses the browser microphone + an FFT to watch the near-ultrasonic band
+// (~17-22 kHz) for the inaudible tones cross-device tracking beacons emit.
+// Receive/observe only — it never emits sound.
+let _ac={ctx:null,an:null,raf:null,stream:null,buf:null,hold:0};
+function openAcoustic(t){
+  $('toolTitle').textContent=t.name;
+  $('toolBody').innerHTML=
+    '<div class="tleft"><div class="sidehd" style="color:var(--cyan)">◉ ACOUSTIC / ULTRASONIC DETECTOR &nbsp;'+statusBadge('live')+'</div>'+
+      '<div style="font-size:11px;color:var(--dim);margin:4px 0 8px">Uses your laptop microphone (in this browser) to watch the near-ultrasonic band (~17–22 kHz) for the inaudible tones that cross-device tracking beacons emit, plus the ambient sound level. Detect-only — it never plays sound.</div>'+
+      '<button id="acBtn" class="ibtn" style="margin-bottom:8px">▶ START MICROPHONE</button>'+
+      '<canvas id="acCanvas" width="560" height="200" style="width:100%;background:#0b0e12;border:1px solid var(--line);border-radius:8px"></canvas>'+
+      '<div id="acReadout" style="font-family:JetBrains Mono;font-size:11px;color:var(--dim);margin-top:8px;min-height:34px">Press START and allow microphone access.</div>'+
+      '<div style="font-size:10.5px;color:var(--dimmer);line-height:1.45;margin-top:6px;border-top:1px solid var(--line);padding-top:8px"><b style="color:var(--amber)">Limits:</b> most laptop mics roll off near 20 kHz, so true ultrasonic (&gt;22 kHz) may not be captured; a passive recorder makes no sound and can\'t be heard; needs mic permission. A sustained narrow ~18–20 kHz tone is a strong hint of a beacon — confirm by moving around.</div></div>'+
+    '<div class="tright"><div class="sidehd" style="color:var(--amber)">✦ HOW TO READ</div>'+
+      '<div style="color:var(--dim);font-size:11px;padding:8px 0;line-height:1.5">The graph shows sound energy from ~12 kHz up. Music/voice fades out below ~16 kHz. A <b>narrow spike that stays put</b> in the 18–20 kHz region — especially indoors near a screen or speaker — is the signature of an <b>ultrasonic tracking beacon</b> cross-linking your devices. Walk around: a real beacon gets louder toward its speaker.</div></div>';
+  $('toolOverlay').classList.add('on');
+  const b=$('acBtn'); if(b) b.onclick=acousticToggle;
+}
+async function acousticToggle(){
+  const b=$('acBtn'), r=$('acReadout');
+  if(_ac.ctx){ acousticStop(); if(b){b.textContent='▶ START MICROPHONE';b.classList.remove('armed');} if(r)r.textContent='Stopped.'; return; }
+  try{
+    _ac.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  }catch(e){ if(r)r.innerHTML='<span style="color:var(--alert)">⚠ Microphone unavailable: '+(e.message||e.name)+'. Allow mic access for this page and retry.</span>'; return; }
+  _ac.ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const src=_ac.ctx.createMediaStreamSource(_ac.stream);
+  _ac.an=_ac.ctx.createAnalyser(); _ac.an.fftSize=8192; _ac.an.smoothingTimeConstant=0.55;
+  src.connect(_ac.an); _ac.buf=new Float32Array(_ac.an.frequencyBinCount); _ac.hold=0;
+  if(b){b.textContent='■ STOP';b.classList.add('armed');}
+  acousticLoop();
+}
+function acousticStop(){
+  if(_ac.raf) cancelAnimationFrame(_ac.raf);
+  if(_ac.stream){ try{_ac.stream.getTracks().forEach(t=>t.stop());}catch(e){} }
+  if(_ac.ctx){ try{_ac.ctx.close();}catch(e){} }
+  _ac={ctx:null,an:null,raf:null,stream:null,buf:null,hold:0};
+}
+function acousticLoop(){
+  _ac.raf=requestAnimationFrame(acousticLoop);
+  const an=_ac.an, buf=_ac.buf, ctx=_ac.ctx, cv=$('acCanvas'); if(!an||!cv){return;}
+  an.getFloatFrequencyData(buf);                      // dBFS per bin
+  const sr=ctx.sampleRate, binHz=sr/an.fftSize;
+  const g=cv.getContext('2d'),W=cv.width,H=cv.height; g.clearRect(0,0,W,H);
+  const fLo=12000, fHi=Math.min(sr/2,24000);
+  const iLo=Math.max(1,Math.floor(fLo/binHz)), iHi=Math.min(buf.length-1,Math.floor(fHi/binHz));
+  g.strokeStyle='#1e242c'; g.fillStyle='#5A6470'; g.font='9px JetBrains Mono';
+  for(let f=12000;f<=fHi;f+=2000){ const x=(f-fLo)/(fHi-fLo)*W; g.beginPath();g.moveTo(x,0);g.lineTo(x,H-12);g.stroke(); g.fillText((f/1000)+'k',x+2,H-2); }
+  g.strokeStyle='#48C9E0'; g.lineWidth=1.5; g.beginPath();
+  let peakDb=-200,peakHz=0,floorSum=0,floorN=0;
+  for(let i=iLo;i<=iHi;i++){
+    const f=i*binHz, x=(f-fLo)/(fHi-fLo)*W;
+    const db=Math.max(-110,Math.min(-20,buf[i])), y=(H-12)-((db+110)/90)*(H-16);
+    if(i===iLo)g.moveTo(x,y);else g.lineTo(x,y);
+    if(f>=17000&&f<=22000&&buf[i]>peakDb){peakDb=buf[i];peakHz=f;}
+    if(f>=15000&&f<=24000){floorSum+=buf[i];floorN++;}
+  }
+  g.stroke();
+  const floor=floorN?floorSum/floorN:-110, over=peakDb-floor;
+  if(peakHz){ const x=(peakHz-fLo)/(fHi-fLo)*W; g.strokeStyle='#F2A93B'; g.beginPath();g.moveTo(x,0);g.lineTo(x,H-12);g.stroke(); }
+  const r=$('acReadout'); if(!r)return;
+  const hot=peakHz&&over>=18;
+  _ac.hold = hot?Math.min(8,_ac.hold+1):Math.max(0,_ac.hold-1);
+  if(_ac.hold>=4) r.innerHTML='<span style="color:var(--alert)">⚠ SUSTAINED ~'+(peakHz/1000).toFixed(1)+' kHz tone (+'+over.toFixed(0)+' dB over floor) — possible ULTRASONIC TRACKING BEACON. Walk around; it gets louder toward its speaker.</span>';
+  else if(peakHz&&over>=10) r.innerHTML='<span style="color:var(--amber)">Near-ultrasonic energy at ~'+(peakHz/1000).toFixed(1)+' kHz (+'+over.toFixed(0)+' dB). Watching — a steady narrow tone here would flag a beacon.</span>';
+  else r.innerHTML='<span style="color:var(--clear)">Listening… no sustained ultrasonic beacon tone in 17–22 kHz. Ambient floor ~'+floor.toFixed(0)+' dBFS.</span>';
+}
 function toolSignal(id,d){ return d.ident; }
 function showIntel(devId){
   const d=B.devices.find(x=>x.id===devId); if(!d)return;
@@ -1165,7 +1234,7 @@ function showIntel(devId){
       d.counter.map(c=>'<div class="next" style="margin-bottom:6px">'+c+'</div>').join('')+'</div>';
   $('intelLocate').onclick=()=>openLocate(d);
 }
-function closeTool(){$('toolOverlay').classList.remove('on');}
+function closeTool(){$('toolOverlay').classList.remove('on'); if(typeof acousticStop==='function') acousticStop();}
 
 // ---------- LOCATE OVERLAY (live signal-strength meter from REAL RSSI) ----------
 // Built-in Bluetooth gives no direction — only signal strength. So Locate is an
