@@ -282,6 +282,9 @@ class Station:
                 self.rf.set_sweep()
             elif c == "rf_scan":
                 self.rf.set_scan(band=cmd.get("band"),
+                                 kind=cmd.get("kind"),
+                                 list_key=cmd.get("list_key"),
+                                 auto=cmd.get("auto"),
                                  lo_mhz=cmd.get("lo_mhz"),
                                  hi_mhz=cmd.get("hi_mhz"),
                                  step_khz=cmd.get("step_khz"),
@@ -289,6 +292,12 @@ class Station:
                                  squelch_db=cmd.get("squelch_db"))
             elif c == "rf_scan_skip":
                 self.rf.scan_skip()
+            elif c == "rf_scan_next":
+                self.rf.scan_next()
+            elif c == "rf_scan_prev":
+                self.rf.scan_prev()
+            elif c == "rf_scan_auto":
+                self.rf.scan_auto(bool(cmd.get("auto", True)))
             elif c == "rf_scan_squelch":
                 self.rf.scan_set_squelch(cmd.get("squelch_db", 8.0))
             else:

@@ -300,15 +300,25 @@
       <div class="gridhd">Radio · sweep the bands, watch the live spectrum, and listen — RTL-SDR, analog only</div>
       <div id="radioOffline" style="display:none;color:var(--alert);font-family:'Spline Sans Mono';font-size:12px">○ RTL-SDR not detected — plug in the dongle (and close any other SDR app using it) to use the radio.</div>
       <div id="radioWrap" style="display:flex;flex-direction:column;gap:9px">
-        <div id="radioBands" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
+        <!-- CHANNELS: flip through real channel plans like a car radio / scanner -->
+        <div id="radioChanBands" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
+        <!-- flip / seek controls -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
-          <button id="radioStop" style="background:#2a1416;color:var(--alert);border:1px solid var(--alert);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">■ STOP / RELEASE</button>
-          <button id="radioSkip" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">⏭ SKIP</button>
+          <button id="radioPrev" style="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">◀ PREV</button>
+          <button id="radioNext" style="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">NEXT ▶</button>
+          <button id="radioAuto" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">⟳ AUTO-SEEK</button>
+          <button id="radioSkip" style="background:#11171e;color:var(--cyan);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">⏭ SKIP</button>
           <span style="color:var(--cyan);font-weight:600;margin-left:6px">SQUELCH</span>
-          <input id="radioSquelch" type="range" min="3" max="30" value="8" style="width:110px;vertical-align:middle">
+          <input id="radioSquelch" type="range" min="3" max="30" value="8" style="width:100px;vertical-align:middle">
           <span id="radioSquelchVal">8 dB</span>
+          <button id="radioStop" style="background:#2a1416;color:var(--alert);border:1px solid var(--alert);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px;margin-left:auto">■ STOP / RELEASE</button>
+        </div>
+        <!-- SWEEP: raw frequency stepping (find signals off the known channels) + manual tune -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+          <span style="color:var(--amber);font-weight:600">SWEEP</span>
+          <span id="radioBands" style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
           <span style="color:var(--cyan);font-weight:600;margin-left:auto">TUNE</span>
-          <input id="radioFreq" type="number" step="0.1" min="25" max="1750" placeholder="98.0" style="width:84px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:inherit;font-size:11px">
+          <input id="radioFreq" type="number" step="0.1" min="25" max="1750" placeholder="98.0" style="width:80px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:inherit;font-size:11px">
           <span>MHz</span>
           <select id="radioDemod" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:inherit;font-size:11px"><option value="WFM">WFM</option><option value="AM">AM</option><option value="NFM">NFM</option></select>
           <button id="radioListen" style="background:#13242b;color:var(--clear);border:1px solid var(--clear);border-radius:5px;padding:3px 11px;cursor:pointer;font-family:inherit;font-size:11px">▶ LISTEN</button>
@@ -1404,42 +1414,72 @@ let rfRadio={center:98.0, span:2400000, demod:'WFM', audio:false};
 let rfScanning=false;          // true while the Radio tab is sweeping/listening
 
 // ================= RADIO TAB (scan bands · spectrum · listen) =================
-let radioRAF=null, radioWired=false, _radioBandsBuilt=false;
+let radioRAF=null, radioWired=false, _radioBandsBuilt=false, _radioChanBuilt=false, rfScanAuto=false;
 function radioBands(){ return (B._rf_meta&&B._rf_meta.scan_bands) || [
   {key:'fm',label:'FM broadcast',demod:'WFM'},{key:'air',label:'Airband',demod:'AM'},
   {key:'wx',label:'Weather',demod:'NFM'},{key:'frs',label:'FRS/GMRS',demod:'NFM'},
   {key:'ham2m',label:'Ham 2m',demod:'NFM'},{key:'ham70',label:'Ham 70cm',demod:'NFM'},
   {key:'ism315',label:'315 ISM (fobs/TPMS)',demod:'NFM'},{key:'ism433',label:'433 ISM (fobs/sensors)',demod:'NFM'}]; }
 
-function radioBuildBands(){
-  const host=$('radioBands'); if(!host||_radioBandsBuilt)return;
-  host.innerHTML='<span style="color:var(--cyan);font-weight:600;font-family:\'Spline Sans Mono\';font-size:11px">SCAN</span>';
-  radioBands().forEach(b=>{
-    const btn=document.createElement('button'); btn.textContent=b.label; btn.dataset.band=b.key;
-    btn.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 9px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
-    btn.onclick=()=>radioStartScan(b.key,b.label);
-    host.appendChild(btn);
-  });
-  _radioBandsBuilt=true;
+// Known channel-plan lists (FM, FRS/GMRS, marine…) for the channel-flip scanner.
+function radioChanLists(){
+  const m=(B._rf_meta&&B._rf_meta.channel_lists);
+  const base = (m&&m.length) ? m.map(c=>({key:c.key,label:c.label})) : [
+    {key:'fm',label:'FM'},{key:'air',label:'Air'},{key:'wx',label:'Weather'},
+    {key:'frs',label:'FRS/GMRS'},{key:'marine',label:'Marine'},{key:'murs',label:'MURS'},
+    {key:'ham2m',label:'Ham 2m'},{key:'ham70',label:'Ham 70cm'},{key:'rail',label:'Rail'},{key:'cb',label:'CB'}];
+  return base.concat([{key:'all',label:'All bands'}]);
 }
-function radioHighlight(key){
-  document.querySelectorAll('#radioBands button').forEach(b=>{
-    const on=b.dataset.band===key;
+function radioBuildBands(){
+  const host=$('radioBands'); if(host&&!_radioBandsBuilt){ host.innerHTML='';
+    radioBands().forEach(b=>{
+      const btn=document.createElement('button'); btn.textContent=b.label; btn.dataset.band=b.key;
+      btn.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:3px 8px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+      btn.onclick=()=>radioStartScan(b.key,b.label); host.appendChild(btn);
+    });
+    _radioBandsBuilt=true;
+  }
+  const ch=$('radioChanBands'); if(ch&&!_radioChanBuilt){
+    ch.innerHTML='<span style="color:var(--clear);font-weight:600;font-family:\'Spline Sans Mono\';font-size:11px">CHANNELS</span>';
+    radioChanLists().forEach(b=>{
+      const btn=document.createElement('button'); btn.textContent=b.label; btn.dataset.chan=b.key;
+      btn.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 9px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+      btn.onclick=()=>radioStartChannels(b.key,b.label); ch.appendChild(btn);
+    });
+    _radioChanBuilt=true;
+  }
+}
+function radioHighlight(sel,key){
+  document.querySelectorAll(sel+' button').forEach(b=>{
+    const on=(b.dataset.chan||b.dataset.band)===key;
     b.style.background=on?'#13242b':'#11171e'; b.style.borderColor=on?'var(--cyan)':'#25303a';
     b.style.color=on?'var(--cyan)':'var(--ink)';
   });
 }
-function radioStartScan(key,label){
+function radioAutoSet(on){
+  rfScanAuto=on; const b=$('radioAuto'); if(!b)return;
+  b.style.background=on?'#3FB984':'#13242b'; b.style.color=on?'#06222a':'var(--cyan)';
+  b.style.borderColor=on?'#3FB984':'var(--cyan)'; b.textContent=on?'⟳ SEEKING…':'⟳ AUTO-SEEK';
+}
+function radioStartChannels(key,label){     // channel-flip: park on ch 1 and listen
   if(!rfOnline())return;
-  rfAudioEnsure();                 // user gesture → allow audio
-  rfScanning=true; rfRadio.audio=false; rfNextTime=0;
+  rfAudioEnsure(); rfScanning=true; rfRadio.audio=false; rfNextTime=0;
   B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
-  radioHighlight(key);
+  radioHighlight('#radioChanBands',key); radioHighlight('#radioBands',null); radioAutoSet(false);
   const sq=parseInt(($('radioSquelch')||{}).value||'8',10);
-  rfSend({cmd:'rf_scan', band:key, squelch_db:sq});
+  rfSend({cmd:'rf_scan', kind:'channels', list_key:key, auto:false, squelch_db:sq});
+}
+function radioStartScan(key,label){          // raw frequency sweep of a band
+  if(!rfOnline())return;
+  rfAudioEnsure(); rfScanning=true; rfRadio.audio=false; rfNextTime=0;
+  B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
+  radioHighlight('#radioBands',key); radioHighlight('#radioChanBands',null); radioAutoSet(true);
+  const sq=parseInt(($('radioSquelch')||{}).value||'8',10);
+  rfSend({cmd:'rf_scan', kind:'sweep', band:key, squelch_db:sq});
 }
 function radioStop(){
-  rfScanning=false; radioHighlight(null);
+  rfScanning=false; radioAutoSet(false);
+  radioHighlight('#radioBands',null); radioHighlight('#radioChanBands',null);
   if(typeof rfAudioStop==='function') rfAudioStop();
   B._rf_scan=null; B._rf_tuned=null;
   if(rfOnline()) rfSend({cmd:'rf_sweep'});   // release dongle to surveillance
@@ -1449,7 +1489,8 @@ function radioListen(){
   rfAudioEnsure();
   let v=parseFloat(($('radioFreq')||{}).value); if(isNaN(v))return;
   v=Math.max(25,Math.min(1750,v));
-  rfScanning=false; radioHighlight(null); B._rf_scan=null;
+  rfScanning=false; radioAutoSet(false);
+  radioHighlight('#radioBands',null); radioHighlight('#radioChanBands',null); B._rf_scan=null;
   rfRadio.center=v; rfRadio.demod=($('radioDemod')||{}).value||'WFM';
   rfRadio.span = rfRadio.demod==='WFM' ? 2400000 : 240000;
   rfRadio.audio=true; rfNextTime=0; B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
@@ -1458,9 +1499,12 @@ function radioListen(){
 function radioWire(){
   if(radioWired)return; radioWired=true;
   const stop=$('radioStop'),skip=$('radioSkip'),sq=$('radioSquelch'),sqv=$('radioSquelchVal'),
-        listen=$('radioListen'),freq=$('radioFreq');
+        listen=$('radioListen'),freq=$('radioFreq'),prev=$('radioPrev'),next=$('radioNext'),auto=$('radioAuto');
   if(stop) stop.onclick=radioStop;
   if(skip) skip.onclick=()=>{ if(rfScanning) rfSend({cmd:'rf_scan_skip'}); };
+  if(prev) prev.onclick=()=>{ if(rfScanning){ radioAutoSet(false); rfSend({cmd:'rf_scan_auto',auto:false}); rfSend({cmd:'rf_scan_prev'}); } };
+  if(next) next.onclick=()=>{ if(rfScanning){ radioAutoSet(false); rfSend({cmd:'rf_scan_auto',auto:false}); rfSend({cmd:'rf_scan_next'}); } };
+  if(auto) auto.onclick=()=>{ if(!rfScanning)return; radioAutoSet(!rfScanAuto); rfSend({cmd:'rf_scan_auto',auto:rfScanAuto}); };
   if(sq) sq.oninput=()=>{ if(sqv) sqv.textContent=sq.value+' dB'; if(rfScanning) rfSend({cmd:'rf_scan_squelch',squelch_db:parseInt(sq.value,10)}); };
   if(listen) listen.onclick=radioListen;
   if(freq) freq.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();radioListen();} });
@@ -1481,29 +1525,39 @@ function stopRadio(){
   cancelAnimationFrame(radioRAF); radioRAF=null;
   radioStop();                     // leaving the tab releases the dongle
 }
+function chLabel(scan){   // "FM 101.5 (ch 73/100)" for channel mode, else just MHz
+  if(scan && scan.kind==='channels' && scan.ch_name!=null)
+    return scan.ch_name+' · '+scan.freq_mhz.toFixed(scan.freq_mhz<100?4:3)+' MHz'
+      +(scan.total?' (ch '+(scan.idx+1)+'/'+scan.total+')':'');
+  return (B._rf_tuned?B._rf_tuned.center_mhz.toFixed(3):'').concat(' MHz');
+}
 function drawRadio(){
   const cv=$('radioCanvas'); if(!cv) return;
   const g=cv.getContext('2d'),W=cv.width,H=cv.height;
   const scan=B._rf_scan, stat=$('radioStatus'), logEl=$('radioLog');
-  if(scan && !scan.locked){
+  const seeking = scan && scan.auto && !scan.locked;     // sweep OR channel auto-seek
+  if(seeking){
     drawSweepView(g,W,H,scan);
-    if(stat) stat.innerHTML='<span style="color:var(--amber)">◌ SWEEPING</span> '+scan.label
-      +' · now '+scan.freq_mhz.toFixed(3)+' MHz · searching for activity above '+scan.squelch_db+' dB';
+    if(stat) stat.innerHTML='<span style="color:var(--amber)">◌ SEEKING</span> '+scan.label
+      +' · '+(scan.kind==='channels'?'checking '+(scan.ch_name||''):'now '+scan.freq_mhz.toFixed(3)+' MHz')
+      +' · stops on activity above '+scan.squelch_db+' dB';
   } else if(B._rf_tuned){
     drawTunedSpectrum(g,W,H,null);
-    if(stat){ const lk=scan&&scan.locked;
-      stat.innerHTML=(lk?'<span style="color:var(--clear)">● LOCKED · listening</span> ':'<span style="color:var(--clear)">● LISTENING</span> ')
-        +B._rf_tuned.center_mhz.toFixed(3)+' MHz · '+B._rf_tuned.demod
-        +(lk?' · tap SKIP for the next signal':''); }
+    if(stat){ const lk=scan&&scan.locked, isCh=scan&&scan.kind==='channels';
+      const lead = lk?'<span style="color:var(--clear)">● LOCKED · listening</span> '
+                     :'<span style="color:var(--clear)">● LISTENING</span> ';
+      stat.innerHTML=lead+(scan?chLabel(scan):B._rf_tuned.center_mhz.toFixed(3)+' MHz')+' · '+B._rf_tuned.demod
+        +(isCh&&!lk?' · ◀ PREV / NEXT ▶ to flip · AUTO-SEEK to scan':'')
+        +(lk?' · SKIP for the next signal':''); }
   } else {
-    drawNoSignal(g,W,H,'RADIO IDLE','Pick a band to scan, or type a frequency and press LISTEN.\nTuner ~25 MHz – 1.75 GHz · analog only.');
+    drawNoSignal(g,W,H,'RADIO IDLE','Pick a CHANNELS band to flip through real channels,\nor a SWEEP band to step raw frequencies, or type a freq + LISTEN.\nTuner ~25 MHz – 1.75 GHz · analog only.');
     if(stat) stat.textContent='';
   }
   if(logEl){
     const hits=(scan&&scan.log)||[];
     logEl.innerHTML = hits.length
       ? '<b style="color:var(--dim)">Activity found:</b> '+hits.slice(0,12).map(h=>
-          '<span style="color:var(--clear)">'+h.mhz.toFixed(3)+'</span> ('+h.over+'dB)').join(' · ')
+          '<span style="color:var(--clear)">'+(h.name?h.name:h.mhz.toFixed(3))+'</span> ('+h.over+'dB)').join(' · ')
       : '';
   }
 }
@@ -1513,9 +1567,9 @@ function drawSweepView(g,W,H,scan){
   const padL=46,padR=14,plotW=W-padL-padR, lo=scan.lo_mhz, hi=scan.hi_mhz;
   // header
   g.textAlign='left';g.fillStyle='#F2A93B';g.font='600 13px Spline Sans Mono';
-  g.fillText('◌ SWEEPING '+scan.label,padL,24);
+  g.fillText('◌ SEEKING '+scan.label+(scan.total?' (ch '+(scan.idx+1)+'/'+scan.total+')':''),padL,24);
   g.fillStyle='#9FB1C2';g.font='600 26px Archivo';g.textAlign='right';
-  g.fillText(scan.freq_mhz.toFixed(3)+' MHz',W-padR,30);
+  g.fillText((scan.ch_name?scan.ch_name+'  ':'')+scan.freq_mhz.toFixed(3)+' MHz',W-padR,30);
   // band track
   const tY=70, tH=26;
   g.fillStyle='#11171e';g.fillRect(padL,tY,plotW,tH);

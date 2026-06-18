@@ -90,6 +90,72 @@ SCAN_BANDS = {
 }
 
 
+# ---- Known channel plans, so the scanner can "flip" through real channels (like
+# a car radio Seek or a police scanner) instead of only stepping raw frequencies.
+# Every frequency is inside the R820T's ~25 MHz–1.75 GHz range. Listening is
+# legal/analog only; digital/encrypted channels (e.g. marine DSC 70) are omitted.
+def _fm_channels():
+    out = []
+    f = 88.1
+    while f <= 107.95:
+        out.append((round(f, 1), "FM %.1f" % round(f, 1)))
+        f += 0.2
+    return out
+
+def _cb_channels():
+    # The 40 CB channels (26.965–27.405 MHz, AM) in channel-number order.
+    freqs = [26.965, 26.975, 26.985, 27.005, 27.015, 27.025, 27.035, 27.055,
+             27.065, 27.075, 27.085, 27.105, 27.115, 27.125, 27.135, 27.155,
+             27.165, 27.175, 27.185, 27.205, 27.215, 27.225, 27.255, 27.235,
+             27.245, 27.265, 27.275, 27.285, 27.295, 27.305, 27.315, 27.325,
+             27.335, 27.345, 27.355, 27.365, 27.375, 27.385, 27.395, 27.405]
+    return [(f, "CB %d" % (i + 1)) for i, f in enumerate(freqs)]
+
+def _rail_channels():
+    # AAR railroad VHF road band 160.215–161.565 MHz at 15 kHz (NFM). Channel-
+    # number assignments vary by railroad, so we label by frequency, honestly.
+    out = []
+    f = 160.215
+    while f <= 161.566:
+        out.append((round(f, 4), "Rail %.4f" % round(f, 4)))
+        f += 0.015
+    return out
+
+CHANNEL_LISTS = {
+    "fm":     {"label": "FM broadcast",     "demod": "WFM", "channels": _fm_channels()},
+    "air":    {"label": "Airband (common)", "demod": "AM",  "channels": [
+        (121.500, "Guard/Emergency"), (122.700, "Unicom 122.70"), (122.800, "Unicom 122.80"),
+        (122.900, "CTAF/Multicom"), (123.000, "Unicom 123.00"), (123.050, "Heli/Unicom"),
+        (123.450, "Air-to-air"), (122.750, "Air-to-air priv"), (122.200, "Flight Service"),
+        (121.950, "Ground (typ)")]},
+    "wx":     {"label": "NOAA Weather",     "demod": "NFM", "channels": [
+        (162.400, "WX1"), (162.425, "WX2"), (162.450, "WX3"), (162.475, "WX4"),
+        (162.500, "WX5"), (162.525, "WX6"), (162.550, "WX7")]},
+    "frs":    {"label": "FRS/GMRS",         "demod": "NFM", "channels": [
+        (462.5625, "FRS 1"), (462.5875, "FRS 2"), (462.6125, "FRS 3"), (462.6375, "FRS 4"),
+        (462.6625, "FRS 5"), (462.6875, "FRS 6"), (462.7125, "FRS 7"), (467.5625, "FRS 8"),
+        (467.5875, "FRS 9"), (467.6125, "FRS 10"), (467.6375, "FRS 11"), (467.6625, "FRS 12"),
+        (467.6875, "FRS 13"), (467.7125, "FRS 14"), (462.5500, "GMRS 15"), (462.5750, "GMRS 16"),
+        (462.6000, "GMRS 17"), (462.6250, "GMRS 18"), (462.6500, "GMRS 19"), (462.6750, "GMRS 20"),
+        (462.7000, "GMRS 21"), (462.7250, "GMRS 22")]},
+    "marine": {"label": "Marine VHF",       "demod": "NFM", "channels": [
+        (156.300, "Ch 06 Safety"), (156.450, "Ch 09 Hail"), (156.650, "Ch 13 Bridge"),
+        (156.800, "Ch 16 Distress"), (157.100, "Ch 22A USCG"), (156.425, "Ch 68"),
+        (156.475, "Ch 69"), (156.575, "Ch 71"), (156.625, "Ch 72"), (156.925, "Ch 78A")]},
+    "murs":   {"label": "MURS",             "demod": "NFM", "channels": [
+        (151.820, "MURS 1"), (151.880, "MURS 2"), (151.940, "MURS 3"),
+        (154.570, "MURS 4 Blue"), (154.600, "MURS 5 Green")]},
+    "ham2m":  {"label": "Ham 2m simplex",   "demod": "NFM", "channels": [
+        (146.520, "2m Call"), (146.550, "Simplex"), (146.580, "Simplex"),
+        (147.420, "Simplex"), (147.480, "Simplex"), (147.555, "Simplex")]},
+    "ham70":  {"label": "Ham 70cm simplex", "demod": "NFM", "channels": [
+        (446.000, "70cm Call"), (446.025, "Simplex"), (446.050, "Simplex"),
+        (446.075, "Simplex"), (446.100, "Simplex"), (446.125, "Simplex")]},
+    "rail":   {"label": "Railroad (AAR)",   "demod": "NFM", "channels": _rail_channels()},
+    "cb":     {"label": "CB radio",         "demod": "AM",  "channels": _cb_channels()},
+}
+
+
 class RFSensor(Sensor):
     channel = "rf"
     name = "RF Spectrum (RTL-SDR R820T)"
@@ -143,12 +209,15 @@ class RFSensor(Sensor):
         self._iq_q = queue.Queue(maxsize=4)
         self._dsp_thread = None
 
-        # --- scanner (sweep/stop-on-activity/listen) state ---
-        self._scan_cfg = dict(SCAN_BANDS["fm"], band="fm", squelch_db=8.0)
+        # --- scanner (sweep/channel-flip/auto-seek/listen) state ---
+        self._scan_cfg = dict(SCAN_BANDS["fm"], band="fm", kind="sweep", squelch_db=8.0)
         self._scan_epoch = 0
-        self._scan_pos = None       # current sweep frequency (Hz)
+        self._scan_pos = None       # current sweep frequency (Hz), sweep mode
+        self._scan_channels = []    # active channel list [{mhz,name,demod,band}]
+        self._scan_idx = 0          # current channel index, channels mode
+        self._scan_auto = True      # True = auto-seek/flip; False = manual park+listen
         self._scan_locked = False   # parked on an active signal (listening)
-        self._scan_log = []         # recent hits [{mhz, over, t}]
+        self._scan_log = []         # recent hits [{mhz, name, over, t}]
         self._scan_n = 0            # state counter (bumps on update)
         self._scan_cur = None       # latest scan-state dict for the UI
 
@@ -316,49 +385,118 @@ class RFSensor(Sensor):
             self._audio_buf.clear()
         self._tuned_applied_epoch = -1   # force a tuned reconfigure next time
 
-    # ====================== SCANNER MODE (sweep + listen) ====================
-    def set_scan(self, band=None, lo_mhz=None, hi_mhz=None, step_khz=None,
-                 demod=None, squelch_db=None):
-        """Enter scanner mode. Either pick a preset band, or pass a custom
-        lo/hi/step/demod. The worker sweeps the range, stops when a channel rises
-        above squelch, and listens; scan_skip() resumes the sweep."""
+    # ============== SCANNER MODE (sweep / channel-flip / auto-seek) ==========
+    def _build_channels(self, list_key):
+        """Expand a channel-list key (or 'all') into in-range channel dicts."""
+        keys = list(CHANNEL_LISTS.keys()) if list_key == "all" else [list_key]
+        out = []
+        for k in keys:
+            spec = CHANNEL_LISTS.get(k)
+            if not spec:
+                continue
+            for mhz, name in spec["channels"]:
+                if self.TUNER_LOW_MHZ <= mhz <= self.TUNER_HIGH_MHZ:
+                    out.append({"mhz": float(mhz), "name": name,
+                                "demod": spec["demod"], "band": spec["label"]})
+        return out
+
+    def set_scan(self, band=None, kind=None, list_key=None, auto=None,
+                 lo_mhz=None, hi_mhz=None, step_khz=None, demod=None, squelch_db=None):
+        """Enter scanner mode.
+
+        Two kinds:
+          * SWEEP   — step raw frequencies across lo..hi (preset band or custom),
+            auto-stop on activity. (kind='sweep')
+          * CHANNELS — flip through a known channel plan (FM, FRS/GMRS, marine…)
+            like a car radio. 'auto' True = auto-seek (pause on activity); False =
+            manual park+listen (use scan_next/scan_prev). 'all' = every plan.
+        """
+        sq = float(squelch_db) if squelch_db is not None else self._scan_cfg.get("squelch_db", 8.0)
+        if kind is None:
+            kind = "channels" if list_key else ("sweep" if (band in SCAN_BANDS) else
+                                                self._scan_cfg.get("kind", "sweep"))
         with self._lock:
-            if band and band in SCAN_BANDS:
-                cfg = dict(SCAN_BANDS[band], band=band)
+            if kind == "channels":
+                lk = list_key or self._scan_cfg.get("list_key") or "fm"
+                chans = self._build_channels(lk)
+                if not chans:
+                    chans = self._build_channels("fm"); lk = "fm"
+                fmin = min(c["mhz"] for c in chans); fmax = max(c["mhz"] for c in chans)
+                cfg = {"kind": "channels", "list_key": lk,
+                       "label": ("All bands" if lk == "all"
+                                 else CHANNEL_LISTS.get(lk, {}).get("label", lk)),
+                       "lo": fmin, "hi": fmax, "squelch_db": sq}
+                self._scan_channels = chans
+                self._scan_idx = 0
+                self._scan_auto = True if auto is None else bool(auto)
             else:
-                cfg = dict(self._scan_cfg)
-            if lo_mhz is not None:
-                cfg["lo"] = max(self.TUNER_LOW_MHZ, min(self.TUNER_HIGH_MHZ, float(lo_mhz))); cfg["band"] = "custom"
-            if hi_mhz is not None:
-                cfg["hi"] = max(self.TUNER_LOW_MHZ, min(self.TUNER_HIGH_MHZ, float(hi_mhz))); cfg["band"] = "custom"
-            if step_khz is not None:
-                cfg["step_khz"] = max(1.0, float(step_khz))
-            if demod is not None and str(demod).upper() in DEMODS:
-                cfg["demod"] = str(demod).upper()
-            cfg.setdefault("span_hz", 240000)
-            cfg.setdefault("half_bw", 7000)
-            cfg["squelch_db"] = float(squelch_db) if squelch_db is not None else self._scan_cfg.get("squelch_db", 8.0)
+                if band and band in SCAN_BANDS:
+                    cfg = dict(SCAN_BANDS[band], band=band)
+                else:
+                    cfg = dict(self._scan_cfg)
+                if lo_mhz is not None:
+                    cfg["lo"] = max(self.TUNER_LOW_MHZ, min(self.TUNER_HIGH_MHZ, float(lo_mhz))); cfg["band"] = "custom"
+                if hi_mhz is not None:
+                    cfg["hi"] = max(self.TUNER_LOW_MHZ, min(self.TUNER_HIGH_MHZ, float(hi_mhz))); cfg["band"] = "custom"
+                if step_khz is not None:
+                    cfg["step_khz"] = max(1.0, float(step_khz))
+                if demod is not None and str(demod).upper() in DEMODS:
+                    cfg["demod"] = str(demod).upper()
+                cfg["kind"] = "sweep"
+                cfg.setdefault("span_hz", 240000); cfg.setdefault("half_bw", 7000)
+                cfg["squelch_db"] = sq
+                self._scan_pos = None
+                self._scan_auto = True
             self._scan_cfg = cfg
             self._scan_epoch += 1
-            self._scan_pos = None
             self._scan_locked = False
             self._scan_log = []
             self._mode = "scan"
             self._audio_buf.clear()
 
     def scan_skip(self):
-        """Resume sweeping from a locked/parked signal (find the next one)."""
+        """Resume seeking from a locked/parked signal (find the next one)."""
         with self._lock:
-            if self._scan_locked:
-                self._scan_locked = False
-                step = int(self._scan_cfg["step_khz"] * 1000)
-                if self._scan_pos is not None:
-                    self._scan_pos += step
-                self._audio_buf.clear()
+            if not self._scan_locked:
+                return
+            self._scan_locked = False
+            if self._scan_cfg.get("kind") == "channels" and self._scan_channels:
+                self._scan_idx = (self._scan_idx + 1) % len(self._scan_channels)
+            elif self._scan_pos is not None:
+                self._scan_pos += int(self._scan_cfg.get("step_khz", 25) * 1000)
+            self._audio_buf.clear()
+
+    def scan_next(self):
+        """Flip to the next channel/step (manual)."""
+        self._scan_step(+1)
+
+    def scan_prev(self):
+        """Flip to the previous channel/step (manual)."""
+        self._scan_step(-1)
+
+    def _scan_step(self, d):
+        with self._lock:
+            if self._scan_cfg.get("kind") == "channels" and self._scan_channels:
+                self._scan_idx = (self._scan_idx + d) % len(self._scan_channels)
+            elif self._scan_pos is not None:
+                self._scan_pos += d * int(self._scan_cfg.get("step_khz", 25) * 1000)
+            self._scan_locked = False
+            self._audio_buf.clear()
+
+    def scan_auto(self, on):
+        """Toggle auto-seek (True) vs manual park-and-listen (False)."""
+        with self._lock:
+            self._scan_auto = bool(on)
+            if on:
+                self._scan_locked = False     # resume seeking from here
+            self._audio_buf.clear()
 
     def scan_set_squelch(self, squelch_db):
         with self._lock:
             self._scan_cfg["squelch_db"] = float(squelch_db)
+
+    def _half_bw_for(self, demod):
+        return 90000 if demod == "WFM" else 7000
 
     def _apply_tuned_config(self, req):
         """Put the radio into the requested tuned config (rate/centre/fixed gain)."""
@@ -455,15 +593,83 @@ class RFSensor(Sensor):
 
     # ---- scanner worker ----------------------------------------------------
     def _run_scan(self):
-        """Sweep the configured band. While unlocked, step channel-by-channel
-        measuring power and stop when one rises above squelch. While locked, read
-        audio blocks at the parked frequency and feed them to the DSP pipeline so
-        the spectrum + audio stream exactly like the tuned listener."""
+        """Dispatch to the raw-frequency sweep or the channel-flip scanner."""
         if not self.sdr:
             return
         with self._lock:
             cfg = dict(self._scan_cfg)
             epoch = self._scan_epoch
+        if cfg.get("kind") == "channels":
+            self._run_scan_channels(cfg, epoch)
+        else:
+            self._run_scan_sweep(cfg, epoch)
+
+    def _run_scan_channels(self, cfg, epoch):
+        """Flip through a known channel plan. In AUTO mode, step channel-by-channel
+        and lock+listen on activity above squelch (Seek). In MANUAL mode, park on
+        the current channel and listen continuously; scan_next/prev move it."""
+        chans = list(self._scan_channels)
+        if not chans:
+            time.sleep(0.2); return
+        cur_sr = None
+        while self._mode == "scan" and self._scan_epoch == epoch:
+            with self._lock:
+                idx = self._scan_idx % len(chans)
+                self._scan_idx = idx
+                auto = self._scan_auto
+                locked = self._scan_locked
+                squelch = self._scan_cfg["squelch_db"]
+            ch = chans[idx]
+            center = int(round(ch["mhz"] * 1e6)); demod = ch["demod"]
+            sr = 2400000 if demod == "WFM" else 240000
+            half_bw = self._half_bw_for(demod)
+            if sr != cur_sr:
+                try:
+                    self.sdr.sample_rate = sr
+                    self.sdr.gain = self._nearest_gain(self.TUNED_GAIN_DB)
+                except Exception as e:
+                    self._error = str(e); time.sleep(0.2); continue
+                cur_sr = sr; self._sweep_configured = False
+            if (not auto) or locked:
+                # listen on this channel (manual park, or auto-locked on a signal)
+                k = self._audio_decim(sr, demod)
+                nsamp = max(k, int(round(sr * 0.25 / k)) * k)
+                try:
+                    self.sdr.center_freq = center
+                    x = self.sdr.read_samples(nsamp)
+                except Exception as e:
+                    self._error = str(e); time.sleep(0.1); continue
+                req = {"center_hz": center, "span_hz": sr, "demod": demod, "audio": True}
+                try:
+                    self._iq_q.put_nowait((x, req, float(sr)))
+                except queue.Full:
+                    pass
+                over = self._block_over(x, sr, half_bw)
+                self._set_scan_state_ch(cfg, chans, idx, over, locked=(auto and locked), auto=auto)
+            else:
+                # auto-seek: measure this channel, lock if active else advance
+                try:
+                    over = self._channel_active(center, sr, half_bw)
+                except Exception as e:
+                    self._error = str(e); over = -999.0; time.sleep(0.04)
+                self._set_scan_state_ch(cfg, chans, idx, over, locked=False, auto=True)
+                if over >= squelch:
+                    with self._lock:
+                        self._scan_locked = True
+                        self._scan_log.insert(0, {"mhz": round(center / 1e6, 4),
+                                                  "name": ch["name"],
+                                                  "over": round(float(over), 1),
+                                                  "t": self._scan_n})
+                        self._scan_log = self._scan_log[:30]
+                else:
+                    with self._lock:
+                        self._scan_idx = (idx + 1) % len(chans)
+
+    def _run_scan_sweep(self, cfg, epoch):
+        """Raw-frequency sweep across lo..hi. While unlocked, step by step_khz
+        measuring power and stop when one rises above squelch. While locked, read
+        audio blocks at the parked frequency and feed them to the DSP pipeline so
+        the spectrum + audio stream exactly like the tuned listener."""
         sr = int(cfg["span_hz"]); demod = cfg["demod"]
         lo = int(round(cfg["lo"] * 1e6)); hi = int(round(cfg["hi"] * 1e6))
         step = int(round(cfg["step_khz"] * 1000)); half_bw = int(cfg["half_bw"])
@@ -538,18 +744,57 @@ class RFSensor(Sensor):
         peak = float(np.max(window)) if window.size else float(np.max(pdb))
         return peak - floor
 
+    def _block_over(self, x, sr, half_bw):
+        """Same carrier-over-floor measure as _channel_active, but from an IQ
+        block we already read — used for the live activity indicator while
+        listening, with no extra tune/read."""
+        N = self.NFFT
+        nseg = max(1, min(4, len(x) // N))
+        if nseg < 1 or len(x) < N:
+            return 0.0
+        win = np.hanning(N)
+        acc = np.zeros(N)
+        for k in range(nseg):
+            seg = x[k * N:(k + 1) * N] * win
+            acc += np.abs(np.fft.fftshift(np.fft.fft(seg))) ** 2
+        pdb = 10.0 * np.log10(acc / nseg + 1e-12)
+        floor = float(np.median(pdb))
+        binhz = sr / float(N); c = N // 2
+        bw = max(2, int(half_bw / binhz)); g = max(2, int(3000 / binhz))
+        window = np.concatenate([pdb[max(0, c - bw):c - g], pdb[c + g:min(N, c + bw)]])
+        peak = float(np.max(window)) if window.size else float(np.max(pdb))
+        return peak - floor
+
     def _set_scan_state(self, cfg, pos, over, locked):
         with self._lock:
             self._scan_n += 1
             self._scan_cur = {
-                "n": self._scan_n, "band": cfg.get("band", "custom"),
+                "n": self._scan_n, "kind": "sweep", "band": cfg.get("band", "custom"),
                 "label": cfg.get("label", "Custom"),
                 "lo_mhz": round(cfg["lo"], 4), "hi_mhz": round(cfg["hi"], 4),
                 "step_khz": cfg["step_khz"], "demod": cfg["demod"],
                 "squelch_db": self._scan_cfg["squelch_db"],
                 "freq_mhz": round(pos / 1e6, 4),
                 "over_db": (None if over is None else round(float(over), 1)),
-                "locked": bool(locked),
+                "locked": bool(locked), "auto": True,
+                "ch_name": None, "idx": None, "total": None,
+                "log": list(self._scan_log),
+                "audio_rate": self._audio_rate,
+            }
+
+    def _set_scan_state_ch(self, cfg, chans, idx, over, locked, auto):
+        ch = chans[idx]
+        with self._lock:
+            self._scan_n += 1
+            self._scan_cur = {
+                "n": self._scan_n, "kind": "channels", "list_key": cfg.get("list_key"),
+                "label": cfg.get("label", "Channels"),
+                "lo_mhz": round(cfg["lo"], 4), "hi_mhz": round(cfg["hi"], 4),
+                "demod": ch["demod"], "squelch_db": self._scan_cfg["squelch_db"],
+                "freq_mhz": round(ch["mhz"], 4), "ch_name": ch["name"],
+                "ch_band": ch.get("band", ""), "idx": idx, "total": len(chans),
+                "over_db": (None if over is None else round(float(over), 1)),
+                "locked": bool(locked), "auto": bool(auto),
                 "log": list(self._scan_log),
                 "audio_rate": self._audio_rate,
             }
@@ -669,13 +914,21 @@ class RFSensor(Sensor):
                     "bands": [[b[0], b[1]] for b in BANDS],
                     "points": list(self._spectrum)}
 
+    def _scan_listening(self):
+        """True when the scanner is producing audio: auto-locked on a signal, OR
+        manually parked on a channel (manual flip always listens)."""
+        if self._mode != "scan":
+            return False
+        if self._scan_cfg.get("kind") == "channels" and not self._scan_auto:
+            return True
+        return bool(self._scan_locked)
+
     def tuned_state(self):
         """Latest live spectrum for the UI — from the tuned listener, or from the
-        scanner when it's parked on a signal (so the scanner shows a real spectrum
-        at the locked frequency). None otherwise."""
+        scanner while it's listening (parked/locked) so the scanner shows a real
+        spectrum at the current frequency. None otherwise."""
         with self._lock:
-            live = (self._mode == "tuned"
-                    or (self._mode == "scan" and self._scan_locked))
+            live = (self._mode == "tuned") or self._scan_listening()
             if not live or self._tuned is None:
                 return None
             return dict(self._tuned)
@@ -690,13 +943,11 @@ class RFSensor(Sensor):
 
     def audio_active(self):
         """True when SENTRY should be producing/streaming audio right now —
-        the tuned listener with audio on, or the scanner parked on a signal."""
+        the tuned listener with audio on, or the scanner parked/locked."""
         with self._lock:
             if self._mode == "tuned":
                 return bool(self._req["audio"])
-            if self._mode == "scan":
-                return bool(self._scan_locked)
-            return False
+            return self._scan_listening()
 
     def audio_since(self, after_seq):
         """Return PCM frames newer than after_seq WITHOUT consuming them, so every
@@ -711,9 +962,12 @@ class RFSensor(Sensor):
         """Static info the UI needs to build the tuned + scanner controls."""
         bands = [{"key": k, "label": v["label"], "lo": v["lo"], "hi": v["hi"],
                   "demod": v["demod"]} for k, v in SCAN_BANDS.items()]
+        chan_lists = [{"key": k, "label": v["label"], "demod": v["demod"],
+                       "count": len(v["channels"])} for k, v in CHANNEL_LISTS.items()]
         return {"spans": VALID_SPANS_HZ, "demods": list(DEMODS),
                 "low_mhz": self.TUNER_LOW_MHZ, "high_mhz": self.TUNER_HIGH_MHZ,
-                "audio_rate": AUDIO_RATE, "scan_bands": bands}
+                "audio_rate": AUDIO_RATE, "scan_bands": bands,
+                "channel_lists": chan_lists}
 
     def scan(self):
         with self._lock:
