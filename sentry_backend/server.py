@@ -398,6 +398,13 @@ async def _serve(station):
                                 await ws.send(json.dumps({"type": "net_scan", "report": report}))
                             except Exception:
                                 pass
+                        elif cn == "net_capture_start":
+                            secs = max(4, min(20, int(cmd.get("seconds", 8))))
+                            summary = await asyncio.to_thread(inspector.capture_traffic, secs)
+                            try:
+                                await ws.send(json.dumps({"type": "net_traffic", "summary": summary}))
+                            except Exception:
+                                pass
             except Exception:
                 pass
 

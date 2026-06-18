@@ -202,12 +202,179 @@ def capture_tool():
     return None
 
 
+def _lan_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except Exception:
+        return None
+    finally:
+        s.close()
+
+
+def _is_private(ip):
+    try:
+        a, b = (int(x) for x in ip.split(".")[:2])
+    except Exception:
+        return False
+    return a == 10 or (a == 192 and b == 168) or (a == 172 and 16 <= b <= 31) or a == 127
+
+
+def capture_interface():
+    """The capture interface (friendly name, e.g. 'Wi-Fi') for the LAN adapter —
+    the one carrying your default route. None if it can't be determined."""
+    lan = _lan_ip()
+    if not lan:
+        return None
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-NetIPAddress -IPAddress {lan} -ErrorAction SilentlyContinue).InterfaceAlias"],
+            capture_output=True, text=True, errors="replace", timeout=10).stdout.strip()
+        return out.splitlines()[0].strip() if out else None
+    except Exception:
+        return None
+
+
+# Encrypted-transport classification — for "what do my devices expose in the clear".
+_ENC_PROTOS = {"TLS", "SSL", "QUIC", "SSH", "TLSV1.2", "TLSV1.3"}
+_ENC_PORTS = {443, 8443, 853, 993, 995, 22, 5061, 636, 990}
+_PLAINTEXT_PORTS = {80, 8080, 8000, 21, 23, 25, 110, 143, 554, 1883, 5000, 9100}
+
+
+def _packet_encrypted(proto, dport):
+    if proto.upper() in _ENC_PROTOS:
+        return True
+    if dport in _ENC_PORTS:
+        return True
+    return False
+
+
+def capture_traffic(seconds=8, max_rows=120):
+    """Capture live traffic on YOUR network for a few seconds with tshark and
+    summarise it — readable rows, protocol breakdown, encrypted-vs-plaintext,
+    a DNS query log, a per-device phone-home map (which external hosts each of
+    your devices contacts), and top-talkers. It summarises metadata (who talked
+    to whom, how much, what protocol) — it never stores or decodes message
+    CONTENT. Authorised-network use only."""
+    tool = capture_tool()
+    if not tool:
+        return {"ok": False, "error": "Wireshark/tshark not installed."}
+    iface = capture_interface()
+    if not iface:
+        return {"ok": False, "error": "Could not determine the LAN capture interface."}
+    fields = ["frame.time_epoch", "ip.src", "ip.dst", "_ws.col.Protocol",
+              "tcp.dstport", "udp.dstport", "frame.len",
+              "dns.qry.name", "dns.a", "tls.handshake.extensions_server_name", "http.host"]
+    cmd = [tool, "-i", iface, "-a", f"duration:{int(seconds)}", "-n", "-l",
+           "-T", "fields", "-E", "separator=\t", "-E", "occurrence=f"]
+    for f in fields:
+        cmd += ["-e", f]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                             timeout=seconds + 20).stdout
+    except Exception as e:
+        return {"ok": False, "error": f"capture failed: {e}", "interface": iface}
+
+    name_for_ip = {}            # external IP -> hostname (from DNS answers)
+    proto_pkts = {}; proto_bytes = {}
+    talkers = {}                # local ip -> bytes
+    phone_home = {}             # local ip -> {host/ip: count}
+    dns_log = []                # {device, query}
+    enc = 0; unenc = 0
+    camera_tells = []
+    rows = []
+    total = 0
+
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 11:
+            parts += [""] * (11 - len(parts))
+        t, src, dst, proto, tdp, udp, ln, dq, da, sni, host = parts[:11]
+        if not src and not dst:
+            continue
+        total += 1
+        try:
+            size = int(ln) if ln else 0
+        except Exception:
+            size = 0
+        dport = 0
+        try:
+            dport = int(tdp) if tdp else (int(udp) if udp else 0)
+        except Exception:
+            dport = 0
+        proto = proto or "?"
+        proto_pkts[proto] = proto_pkts.get(proto, 0) + 1
+        proto_bytes[proto] = proto_bytes.get(proto, 0) + size
+        # DNS answer → name map (enriches the phone-home view)
+        if dq and da:
+            for ip in da.split(","):
+                ip = ip.strip()
+                if ip:
+                    name_for_ip[ip] = dq
+        # DNS query log: which of MY devices looked up what
+        if dq and _is_private(src):
+            dns_log.append({"device": src, "query": dq})
+        # encrypted vs plaintext
+        if proto.upper() in ("TLS", "SSL", "QUIC") or dport in _ENC_PORTS:
+            enc += 1
+        elif proto.upper() in ("HTTP", "DNS", "FTP", "TELNET") or dport in _PLAINTEXT_PORTS:
+            unenc += 1
+        # camera tell
+        if proto.upper().startswith("RTSP") or dport in (554, 8554):
+            camera_tells.append({"src": src, "dst": dst})
+        # phone-home: local device -> external destination
+        if _is_private(src) and dst and not _is_private(dst):
+            talkers[src] = talkers.get(src, 0) + size
+            label = sni or host or name_for_ip.get(dst) or dst
+            ph = phone_home.setdefault(src, {})
+            ph[label] = ph.get(label, 0) + 1
+        elif _is_private(src):
+            talkers[src] = talkers.get(src, 0) + size
+        # readable row
+        if len(rows) < max_rows:
+            rows.append({"t": (t.split(".")[0][-6:] if t else ""), "src": src, "dst": dst,
+                         "proto": proto, "port": dport, "size": size,
+                         "enc": _packet_encrypted(proto, dport)})
+
+    protocols = sorted(
+        [{"proto": p, "packets": proto_pkts[p], "bytes": proto_bytes.get(p, 0)} for p in proto_pkts],
+        key=lambda x: -x["packets"])
+    top_talkers = sorted(
+        [{"ip": ip, "bytes": b, "name": name_for_ip.get(ip, "")} for ip, b in talkers.items()],
+        key=lambda x: -x["bytes"])[:10]
+    phone = []
+    for ip, hosts in phone_home.items():
+        top = sorted(hosts.items(), key=lambda x: -x[1])[:8]
+        phone.append({"device": ip, "contacts": [{"host": h, "count": c} for h, c in top]})
+    phone.sort(key=lambda x: -sum(c["count"] for c in x["contacts"]))
+    # dedupe DNS log keeping counts
+    dns_counts = {}
+    for d in dns_log:
+        k = (d["device"], d["query"])
+        dns_counts[k] = dns_counts.get(k, 0) + 1
+    dns_top = sorted([{"device": k[0], "query": k[1], "count": v} for k, v in dns_counts.items()],
+                     key=lambda x: -x["count"])[:30]
+
+    return {
+        "ok": True, "interface": iface, "seconds": int(seconds), "packets": total,
+        "protocols": protocols[:14],
+        "encrypted": enc, "plaintext": unenc,
+        "dns": dns_top, "phone_home": phone[:12], "top_talkers": top_talkers,
+        "camera_tells": camera_tells[:6],
+        "rows": rows,
+        "note": "Metadata only — who talked to whom, how much, what protocol. "
+                "Message CONTENT is never stored or decoded.",
+    }
+
+
 def capture_status():
     """Honest report of whether live packet capture is available, and if not,
     exactly what to install to unlock the Network Inspector traffic features."""
     tool = capture_tool()
     if tool:
-        return {"available": True, "tool": tool,
+        return {"available": True, "tool": tool, "interface": capture_interface(),
                 "note": "Wireshark/tshark found — live traffic capture is available "
                         "on networks/devices you own."}
     return {

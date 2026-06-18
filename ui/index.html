@@ -359,6 +359,10 @@
           <div id="netReport" style="font-family:'Spline Sans Mono';font-size:11.5px;color:var(--dimmer)">Select a device (or type an IP) and SCAN PORTS to see its open services, what it exposes in the clear, and how to fix risks.</div>
         </div>
       </div>
+      <div id="netTrafficWrap" style="display:none;margin-top:4px">
+        <div class="sidehd" style="color:var(--cyan);margin-bottom:6px">◉ Live traffic (metadata only — never message content)</div>
+        <div id="netTraffic" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)"></div>
+      </div>
     </div>
   </div>
 
@@ -1457,7 +1461,10 @@ function netRenderCapture(){
   const c=B._net_capture;
   if(!c){ el.innerHTML='<span style="color:var(--dimmer)">Checking live-capture availability…</span>'; return; }
   if(c.available){
-    el.innerHTML='<span style="color:var(--clear)">● LIVE TRAFFIC CAPTURE available</span> ('+c.tool+') — readable traffic, DNS log, per-device phone-home and top-talkers can run on networks you own.';
+    el.innerHTML='<span style="color:var(--clear)">● LIVE TRAFFIC CAPTURE available</span> ('+(c.interface||c.tool)
+      +') — readable traffic, DNS log, per-device phone-home and top-talkers, on networks you own.&nbsp; '
+      +'<button id="netCapBtn" style="background:#13242b;color:var(--clear);border:1px solid var(--clear);border-radius:5px;padding:3px 10px;cursor:pointer;font-family:inherit;font-size:11px">▶ CAPTURE 8s</button>';
+    const b=$('netCapBtn'); if(b) b.onclick=netCaptureStart;
   } else {
     el.innerHTML='<span style="color:var(--amber)">○ Live packet capture OFFLINE</span> — the port scan + risk analysis below work without it. '
       +'To unlock live traffic / DNS / phone-home / top-talkers, install: <b>'+(c.needs||[]).join('</b> and <b>')+'</b>.<br>'
@@ -1521,6 +1528,56 @@ function netRenderReport(r){
   // learn mode
   if(r.learn)
     h+='<div style="margin-top:7px;background:#0E141b;border:1px solid #1b232c;border-radius:6px;padding:7px 9px;color:var(--dim);font-size:11px"><b style="color:var(--cyan)">Learn:</b> '+r.learn+'</div>';
+  el.innerHTML=h;
+}
+function netCaptureStart(){
+  const w=$('netTrafficWrap'), t=$('netTraffic'); if(w) w.style.display='block';
+  if(t) t.innerHTML='<span style="color:var(--cyan)">◌ Capturing 8s of live traffic on your network…</span>';
+  const b=$('netCapBtn'); if(b){ b.disabled=true; b.textContent='◌ capturing…'; }
+  rfSend({cmd:'net_capture_start', seconds:8});
+}
+function netRenderTraffic(s){
+  const b=$('netCapBtn'); if(b){ b.disabled=false; b.textContent='▶ CAPTURE 8s'; }
+  const el=$('netTraffic'); if(!el) return;
+  if(!s || !s.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((s&&s.error)||'capture failed')+'</span>'; return; }
+  const enc=s.encrypted||0, pl=s.plaintext||0, tot=Math.max(1,enc+pl);
+  let h='<div style="color:var(--ink)">'+s.packets+' packets in '+s.seconds+'s on '+s.interface
+    +' <span style="color:var(--dimmer)">· '+s.note+'</span></div>';
+  // encrypted vs plaintext bar
+  h+='<div style="margin:6px 0"><span style="color:var(--cyan)">Exposure:</span> '
+    +'<span style="color:#3FB984">'+enc+' encrypted</span> · <span style="color:#F2A93B">'+pl+' in the clear</span> '
+    +'<span style="display:inline-block;width:140px;height:8px;background:#F2A93B;border-radius:4px;vertical-align:middle;overflow:hidden">'
+    +'<span style="display:inline-block;height:8px;width:'+Math.round(enc/tot*140)+'px;background:#3FB984"></span></span></div>';
+  // protocols
+  if(s.protocols&&s.protocols.length)
+    h+='<div style="margin:4px 0"><span style="color:var(--cyan)">Protocols:</span> '
+      +s.protocols.slice(0,8).map(p=>p.proto+' ('+p.packets+')').join(' · ')+'</div>';
+  // phone-home
+  if(s.phone_home&&s.phone_home.length){
+    h+='<div style="color:var(--cyan);margin:6px 0 2px">Phone-home — which external hosts your devices contacted:</div>';
+    s.phone_home.slice(0,6).forEach(p=>{
+      h+='<div style="padding-left:8px"><b>'+p.device+'</b> → <span style="color:var(--dim)">'
+        +p.contacts.slice(0,5).map(c=>c.host).join(', ')+'</span></div>';
+    });
+  }
+  // DNS log
+  if(s.dns&&s.dns.length)
+    h+='<div style="margin:6px 0"><span style="color:var(--cyan)">DNS lookups:</span> <span style="color:var(--dim)">'
+      +s.dns.slice(0,10).map(d=>d.query).join(' · ')+'</span></div>';
+  // top talkers
+  if(s.top_talkers&&s.top_talkers.length)
+    h+='<div style="margin:4px 0"><span style="color:var(--cyan)">Top talkers:</span> '
+      +s.top_talkers.slice(0,5).map(t=>t.ip+' ('+(t.bytes>1024?(t.bytes/1024).toFixed(1)+'KB':t.bytes+'B')+')').join(' · ')+'</div>';
+  if(s.camera_tells&&s.camera_tells.length)
+    h+='<div style="margin:4px 0;color:var(--alert)">📷 RTSP video traffic seen: '+s.camera_tells.map(c=>c.src+'→'+c.dst).join(', ')+'</div>';
+  // readable rows
+  if(s.rows&&s.rows.length){
+    h+='<div style="color:var(--cyan);margin:6px 0 2px">Recent packets:</div><div style="max-height:160px;overflow:auto;border:1px solid #1b232c;border-radius:6px;padding:5px">';
+    s.rows.slice(0,60).forEach(r=>{ h+='<div style="font-size:10px;color:var(--dimmer)">'
+      +r.src+' → '+r.dst+' · '+r.proto+(r.port?':'+r.port:'')+' · '+r.size+'B '
+      +(r.enc?'<span style="color:#3FB984">🔒</span>':'<span style="color:#F2A93B">clear</span>')+'</div>'; });
+    h+='</div>';
+  }
   el.innerHTML=h;
 }
 function netWire(){
@@ -2016,6 +2073,7 @@ function connectBackend(){
       if(msg && msg.type==='rf_scan'){ B._rf_scan=msg.scan; return; }
       if(msg && msg.type==='net_capture'){ B._net_capture=msg.status; if(typeof netRenderCapture==='function') netRenderCapture(); return; }
       if(msg && msg.type==='net_scan'){ if(typeof netRenderReport==='function') netRenderReport(msg.report); return; }
+      if(msg && msg.type==='net_traffic'){ if(typeof netRenderTraffic==='function') netRenderTraffic(msg.summary); return; }
       if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
       if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){
