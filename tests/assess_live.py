@@ -10,7 +10,7 @@ TICKS = 12
 async def main():
     seen = {}; hist = collections.defaultdict(list); order = []
     sensors = []
-    async with websockets.connect("ws://192.168.1.112:8765") as ws:
+    async with websockets.connect("ws://localhost:8765") as ws:
         last=None; got=0
         while got < TICKS:
             d = json.loads(await asyncio.wait_for(ws.recv(), timeout=25))

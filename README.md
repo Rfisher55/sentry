@@ -16,6 +16,31 @@ surveillance — see *Honest limits* below.
 
 ---
 
+## 📚 Full build documentation → start at [`docs/00_START_HERE.md`](docs/00_START_HERE.md)
+
+The `docs/` folder is a complete, staged build journey — from running it free on a
+laptop all the way to a portable Raspberry Pi unit in a Pelican case. New here?
+Open **[`docs/00_START_HERE.md`](docs/00_START_HERE.md)** — it's the entry point and
+index for everything below.
+
+The journey, in order:
+
+1. **Run it on a laptop** (free) — Wi-Fi + Bluetooth + network detection today;
+   add a ~$45 RTL-SDR dongle for live RF. → `01_QUICKSTART`, `02_LAPTOP_CLAUDECODE_GITHUB`, `03_LAPTOP_FULL_RF_WIFI_BT`
+2. **Build out the laptop** — phased USB add-ons (SDR, directional antenna,
+   monitor-mode Wi-Fi, GPS) and every feature to grow toward. → `04_LAPTOP_BUILDOUT_PLAN`, `08_FULL_FEATURE_CATALOG`
+3. **Step up to the Pi "ultimate box"** — the physical sensors a laptop can't do
+   (thermal, lens-finder, NFC, EMF, acoustic), full wiring diagrams, the Pelican
+   case build. → `05_PI_ULTIMATE_BOX`, `11_PHASES_6_7_8`
+4. **Reference** — parts/prices, shopping lists, roadmap, and moving gear from
+   laptop to Pi. → `06_HARDWARE`, `09_SHOPPING_LIST_PI_BOX`, `10_SHOPPING_FROM_SCRATCH`, `07_ROADMAP`, `12_MOVING_GEAR_LAPTOP_TO_PI`
+
+Honest throughout: the laptop phases (RF / Wi-Fi / Bluetooth / network) are fully
+laptop-doable; the physical sensors (thermal, lens, NFC, EMF) genuinely need the
+Pi's GPIO pins and are clearly marked as such.
+
+---
+
 ## Quick start (Windows)
 
 1. **Install Python 3** from https://python.org — during install, tick

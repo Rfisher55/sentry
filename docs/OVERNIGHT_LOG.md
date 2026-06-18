@@ -16,7 +16,8 @@ Ground rules I'm holding to:
 ## Iteration 1 — regression harness + log (done)
 - Added `tests/test_identify.py`: 16 deterministic, offline classification checks
   (Apple Find My/AirPods/iPhone/Watch/TV, Microsoft CDP Android/Windows, camera
-  by RTSP port, printer by 9100, Hikvision by OUI, Govee/Bose by name, plus a
+  by RTSP port, printer by 9100, camera vendor by OUI, smart-home devices by
+  advertised name, plus a
   false-positive guard that a generic port must NOT flag a camera).
   Result: **16/16 PASS.**
 - Added this log.
