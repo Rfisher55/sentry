@@ -226,6 +226,8 @@
       <button class="tab" data-tab="channels">Channels</button>
       <button class="tab" data-tab="radio">Radio</button>
       <button class="tab" data-tab="network">Network</button>
+      <button class="tab" data-tab="threats">Threats</button>
+      <button class="tab" data-tab="surface">Defense</button>
     </div>
     <div class="status">
       <span>MONITORING <b>LIVE</b></span>
@@ -407,6 +409,62 @@
     </div>
   </div>
 
+  <!-- THREAT DEFENSE (Flipper/Unleashed-class threats — detect-only, receive-only) -->
+  <div class="view" id="threats">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
+      <div class="gridhd">Threat Defense — spot tools that may be targeting you</div>
+      <div style="font-family:'Spline Sans Mono';font-size:11px;background:#11202a;border:1px solid #1e3a44;border-radius:8px;padding:8px 11px;color:var(--cyan)">
+        🛡 <b>DETECT-ONLY / RECEIVE-ONLY.</b> SENTRY detects and advises — it never transmits, replays, clones, emulates, jams, or attacks any device (the RTL-SDR physically cannot transmit). This watches for signs that a tool like a Flipper Zero or an RF replay/brute-force attempt may be near or in use against you.
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:260px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
+          <div class="sidehd" style="color:var(--clear);margin-bottom:5px">📡 Flipper Zero / rogue RF multitool</div>
+          <div id="tdFlipper" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)">Scanning Bluetooth…</div>
+        </div>
+        <div style="flex:1;min-width:260px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
+          <div class="sidehd" style="color:var(--amber);margin-bottom:5px">🔁 RF replay / brute-force / jam watch (fob bands)</div>
+          <div id="tdRf" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)">Watching 315 / 433 / 868 MHz…</div>
+        </div>
+      </div>
+      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="sidehd" style="color:var(--clear)">⌨ BadUSB / rogue HID watch</div>
+          <button id="tdHidBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ SCAN USB INPUT DEVICES</button>
+          <button id="tdHidSnap" style="background:#13242b;color:var(--cyan);border:1px solid #25303a;border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">📸 SNAPSHOT</button>
+        </div>
+        <div id="tdHid" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px">A BadUSB (“rubber ducky”) registers as a new keyboard. Snapshot now, and if a keyboard appears later that you didn’t plug in — investigate.</div>
+      </div>
+      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
+        <div class="sidehd" style="color:var(--cyan);margin-bottom:5px">🛡 Hardening against these</div>
+        <div id="tdHarden" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim);line-height:1.55"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ATTACK-SURFACE DEFENSE (RedAmon-class automated-pentest counter — defensive) -->
+  <div class="view" id="surface">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
+      <div class="gridhd">Attack-Surface Defense — be ready for automated pentest tools</div>
+      <div style="font-family:'Spline Sans Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
+        🎯 <b>DEFENSIVE · YOUR OWN network only.</b> An autonomous framework (RedAmon-class) would scan, enumerate, match CVEs and try to exploit — automatically. SENTRY does NOT exploit anything; it shows what such a tool would hit FIRST on your network, detects an active scan against you, and tells you what to close. Beat the automation by fixing the exposure first.
+      </div>
+      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="sidehd" style="color:var(--alert)">🎯 What an attacker hits first</div>
+          <button id="asScanBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ EXPOSURE CHECK (scan gateway)</button>
+        </div>
+        <div id="asView" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px">Pulls from your latest Network-tab scans, ranked by attacker priority. Run a scan in the Network tab, or click EXPOSURE CHECK above.</div>
+      </div>
+      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="sidehd" style="color:var(--clear)">🛰 Are you being scanned right now?</div>
+          <button id="asIdsBtn" style="background:#13242b;color:var(--clear);border:1px solid #244a3a;border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ WATCH 8s FOR SCANS</button>
+        </div>
+        <div id="asIds" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px">Captures 8s and flags port-scan / probe signatures aimed at you (the IDS).</div>
+      </div>
+    </div>
+  </div>
+
   <!-- TOOL OVERLAY -->
   <div class="overlay" id="toolOverlay">
     <div class="oh"><h2 id="toolTitle">Tool</h2><button class="ox" id="toolExit">✕ EXIT</button></div>
@@ -559,6 +617,8 @@ document.querySelectorAll('.tab').forEach(t=>{
     if(t.dataset.tab==='radio'){ if(typeof startRadio==='function') startRadio(); }
     else { if(typeof stopRadio==='function') stopRadio(); }
     if(t.dataset.tab==='network'){ if(typeof startNetwork==='function') startNetwork(); }
+    if(t.dataset.tab==='threats'){ if(typeof startThreats==='function') startThreats(); } else { if(typeof stopThreats==='function') stopThreats(); }
+    if(t.dataset.tab==='surface'){ if(typeof startSurface==='function') startSurface(); }
   };
 });
 
@@ -1829,6 +1889,101 @@ function startNetwork(){
   rfSend({cmd:'net_nmap_status'});
 }
 
+// ================= THREAT DEFENSE (Flipper / RF replay / BadUSB) ==============
+let _tdTimer=null, _tdHidSnap=null;
+const FOB_BANDS=[[300,348,'315 MHz remotes/TPMS'],[387,464,'433 MHz fobs/sensors'],[775,928,'868/915 MHz ISM']];
+function fobBand(mhz){ for(const b of FOB_BANDS){ if(mhz>=b[0]&&mhz<=b[1]) return b[2]; } return null; }
+function looksFlipper(d){ return /flipper/i.test([d.kind,d.model,d.ident,d.maker,d.device_type].join(' ')); }
+function tdScan(){
+  // Flipper / rogue BLE multitool — from the live Bluetooth scan
+  const fl=(B.devices||[]).filter(d=>d.channel==='bluetooth'&&looksFlipper(d));
+  const fe=$('tdFlipper');
+  if(fe){
+    if(fl.length){ fe.innerHTML=fl.map(d=>'<div style="color:var(--alert)">⚠ <b>Flipper Zero detected</b> — '+(d.model||d.kind||'BLE')+(d.rssi?' · '+Math.round(d.rssi)+' dBm':'')+'<div style="color:var(--dim);font-size:10px">A Flipper is a Sub-GHz/NFC/IR/BadUSB multitool. Near you doesn’t mean it’s attacking — but keep fobs/cards out of reach and watch the RF + BadUSB panels.</div></div>').join(''); }
+    else fe.innerHTML='<span style="color:var(--clear)">No Flipper-class BLE device seen ✓</span> <span style="color:var(--dimmer)">(detects one advertising over Bluetooth with a default name; a renamed or BLE-off unit won’t show)</span>';
+  }
+  // RF replay/brute-force/jam watch — fob-band detections from the SDR
+  const re=$('tdRf');
+  if(re){
+    if(!rfOnline()){ re.innerHTML='<span style="color:var(--dimmer)">RF sensor offline — plug in the RTL-SDR to watch 315/433/868 MHz for replay/brute-force/jam bursts.</span>'; }
+    else {
+      const hits=(B.devices||[]).filter(d=>d.channel==='rf'&&d.freq_mhz&&fobBand(d.freq_mhz));
+      if(!hits.length) re.innerHTML='<span style="color:var(--clear)">No fob-band RF activity right now ✓</span> <span style="color:var(--dimmer)">(watching 315 / 433 / 868 MHz)</span>';
+      else { const many=hits.length>=4;
+        re.innerHTML=(many?'<div style="color:var(--alert)">⚠ Elevated fob-band activity ('+hits.length+' bursts) — repeated bursts can mean a replay/brute-force/jam attempt. Verify it’s your own remote.</div>':'<div style="color:var(--amber)">'+hits.length+' fob-band signal(s) seen:</div>')
+          +hits.slice(0,6).map(d=>'<div style="font-size:10.5px;color:var(--dim)">'+d.freq_mhz.toFixed(2)+' MHz · '+fobBand(d.freq_mhz)+(d.rssi?' · '+Math.round(d.rssi)+' dBm':'')+'</div>').join('');
+      }
+    }
+  }
+}
+function tdHidRun(){ const el=$('tdHid'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Enumerating USB input devices…</span>'; rfSend({cmd:'threat_hid_audit'}); }
+function tdRenderHid(r){
+  const el=$('tdHid'); if(!el) return;
+  if(!r||!r.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((r&&r.error)||'HID scan failed')+'</span>'; return; }
+  const kb=(r.devices||[]).filter(d=>d.class==='Keyboard');
+  let newKb=[];
+  if(_tdHidSnap){ const prev=new Set(_tdHidSnap); newKb=kb.filter(d=>!prev.has(d.id)); }
+  let h='<div style="color:var(--ink)">'+r.keyboards+' keyboard(s), '+(r.devices||[]).length+' HID input devices present</div>';
+  if(newKb.length) h+='<div style="color:var(--alert)">⚠ NEW keyboard since snapshot: '+newKb.map(d=>d.name).join(', ')+' — a BadUSB injects keystrokes as a fake keyboard. If you didn’t plug this in, UNPLUG it.</div>';
+  h+=kb.map(d=>'<div style="font-size:10.5px;color:var(--dim)">⌨ '+d.name+'</div>').join('');
+  h+='<div style="color:var(--dimmer);font-size:10px;margin-top:3px">'+(r.note||'')+'</div>';
+  el.innerHTML=h;
+  window._tdLastKb=kb;
+}
+function tdSnapshot(){ if(window._tdLastKb){ _tdHidSnap=window._tdLastKb.map(d=>d.id); const el=$('tdHid'); if(el) el.innerHTML+='<div style="color:var(--cyan)">📸 Snapshot set ('+_tdHidSnap.length+' keyboard(s)). A new one later will be flagged.</div>'; } else tdHidRun(); }
+const TD_HARDEN=[
+  'Rolling-code remotes (car/garage): a Flipper can record &amp; replay FIXED codes — make sure yours uses ROLLING code (KeeLoq/HCS), and don’t press the fob near strangers.',
+  'RFID/NFC: low-frequency (125 kHz) badges clone trivially — upgrade to 13.56 MHz with crypto (DESFire). Keep cards in an RF-blocking sleeve.',
+  'BadUSB: never plug in found/unknown USB sticks; lock your screen when away; consider USB-control settings that block new HID devices.',
+  'Car key relay: keep keys in a Faraday pouch — relay attacks extend your key’s range to unlock/start the car.',
+  'If you see persistent fob-band bursts you can’t explain, treat the area as compromised and move; this is detection, not proof.'];
+function startThreats(){
+  const hb=$('tdHidBtn'); if(hb&&!hb._w){ hb._w=1; hb.onclick=tdHidRun; }
+  const sb=$('tdHidSnap'); if(sb&&!sb._w){ sb._w=1; sb.onclick=tdSnapshot; }
+  const hd=$('tdHarden'); if(hd) hd.innerHTML='• '+TD_HARDEN.join('<br>• ');
+  tdScan(); tdHidRun();
+  if(_tdTimer) clearInterval(_tdTimer);
+  _tdTimer=setInterval(tdScan,2500);
+}
+function stopThreats(){ if(_tdTimer){ clearInterval(_tdTimer); _tdTimer=null; } }
+
+// ================= ATTACK-SURFACE DEFENSE (anti automated-pentest) ============
+function asView(){
+  const el=$('asView'); if(!el) return;
+  const f=(typeof netGatherFindings==='function')?netGatherFindings():[];
+  if(!f.length){ el.innerHTML='No exposure data yet. Click EXPOSURE CHECK, or run a scan in the Network tab — then an attacker’s-priority view shows here.'; return; }
+  let h='<div style="color:var(--dim)">What an automated tool would target first on your network (by severity):</div>';
+  f.slice(0,12).forEach((a,i)=>{ const c=RSKCOL[a.sev]||'#888';
+    h+='<div style="font-size:10.5px;margin-top:2px"><b style="color:'+c+'">'+(i+1)+'. '+a.sev.toUpperCase()+'</b> <span style="color:var(--dimmer)">['+a.src+']</span> '+a.what+'</div>'; });
+  h+='<div style="color:var(--clear);font-size:10px;margin-top:5px">Fix from the top down — close these before an automated tool finds them.</div>';
+  el.innerHTML=h;
+}
+function asScan(){
+  const el=$('asView'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Running discovery + quick scan of the gateway… (~25s)</span>';
+  const gw=((netLanDevices()[0]||{}).ip)||'';
+  const base=gw?gw.split('.').slice(0,3).join('.'):'';
+  rfSend({cmd:'net_nmap_scan', target:gw||(base+'.1'), scan_type:'quick'});
+}
+function asIdsRun(){
+  const el=$('asIds'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Watching traffic 8s for scan/probe signatures…</span>';
+  rfSend({cmd:'net_capture_start', seconds:8});
+}
+function asRenderIds(){
+  const el=$('asIds'); if(!el) return;
+  const t=(B._net_last||{}).traffic; if(!t){ return; }
+  const ids=t.ids||[];
+  if(!ids.length){ el.innerHTML='<span style="color:var(--clear)">No scan/probe signatures aimed at you in that window ✓</span> <span style="color:var(--dimmer)">('+t.packets+' packets)</span>'; return; }
+  let h='<div style="color:var(--alert)">🛰 Scan/probe activity detected:</div>';
+  ids.forEach(a=>{ const c=RSKCOL[a.severity]||'#888'; h+='<div style="font-size:10.5px"><b style="color:'+c+'">'+a.severity.toUpperCase()+'</b> '+a.what+' <span style="color:var(--clear)">→ '+a.fix+'</span></div>'; });
+  el.innerHTML=h;
+}
+function asRefresh(){ const v=document.getElementById('surface'); if(v&&v.classList.contains('on')){ asView(); asRenderIds(); } }
+function startSurface(){
+  const sb=$('asScanBtn'); if(sb&&!sb._w){ sb._w=1; sb.onclick=asScan; }
+  const ib=$('asIdsBtn'); if(ib&&!ib._w){ ib._w=1; ib.onclick=asIdsRun; }
+  asView(); asRenderIds();
+}
+
 
 // ================= RADIO TAB (scan bands · spectrum · listen) =================
 let radioRAF=null, radioWired=false, _radioBandsBuilt=false, _radioChanBuilt=false, rfScanAuto=false;
@@ -2311,11 +2466,12 @@ function connectBackend(){
       if(msg && msg.type==='rf_scan'){ B._rf_scan=msg.scan; return; }
       if(msg && msg.type==='net_capture'){ B._net_capture=msg.status; if(typeof netRenderCapture==='function') netRenderCapture(); return; }
       if(msg && msg.type==='net_scan'){ (B._net_last=B._net_last||{}).scan=msg.report; if(typeof netRenderReport==='function') netRenderReport(msg.report); return; }
-      if(msg && msg.type==='net_traffic'){ (B._net_last=B._net_last||{}).traffic=msg.summary; if(typeof netRenderTraffic==='function') netRenderTraffic(msg.summary); return; }
+      if(msg && msg.type==='net_traffic'){ (B._net_last=B._net_last||{}).traffic=msg.summary; if(typeof netRenderTraffic==='function') netRenderTraffic(msg.summary); if(typeof asRefresh==='function') asRefresh(); return; }
       if(msg && msg.type==='net_nmap_status'){ B._net_nmap=msg.status; if(typeof netRenderNmapStatus==='function') netRenderNmapStatus(); return; }
-      if(msg && msg.type==='net_nmap'){ (B._net_last=B._net_last||{}).nmap=msg.result; if(typeof netRenderNmap==='function') netRenderNmap(msg.result); return; }
+      if(msg && msg.type==='net_nmap'){ (B._net_last=B._net_last||{}).nmap=msg.result; if(typeof netRenderNmap==='function') netRenderNmap(msg.result); if(typeof asRefresh==='function') asRefresh(); return; }
       if(msg && msg.type==='net_web'){ (B._net_last=B._net_last||{}).web=msg.result; if(typeof netRenderWeb==='function') netRenderWeb(msg.result); return; }
       if(msg && msg.type==='net_arp'){ (B._net_last=B._net_last||{}).arp=msg.result; if(typeof netRenderArp==='function') netRenderArp(msg.result); return; }
+      if(msg && msg.type==='threat_hid'){ if(typeof tdRenderHid==='function') tdRenderHid(msg.result); return; }
       if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
       if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){

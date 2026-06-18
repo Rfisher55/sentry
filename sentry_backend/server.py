@@ -78,6 +78,7 @@ from sentry_backend.sensors.bluetooth import BLESensor
 from sentry_backend.sensors.network import NetworkSensor
 from sentry_backend import identify
 from sentry_backend import inspector
+from sentry_backend import threats
 
 
 def _is_private_ip(ip):
@@ -432,6 +433,12 @@ async def _serve(station):
                             res = await asyncio.to_thread(inspector.arp_audit)
                             try:
                                 await ws.send(json.dumps({"type": "net_arp", "result": res}))
+                            except Exception:
+                                pass
+                        elif cn == "threat_hid_audit":
+                            res = await asyncio.to_thread(threats.hid_audit)
+                            try:
+                                await ws.send(json.dumps({"type": "threat_hid", "result": res}))
                             except Exception:
                                 pass
             except Exception:
