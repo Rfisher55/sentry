@@ -326,6 +326,17 @@
     <div class="obody">
       <div class="sigleft">
         <div class="sidehd" style="color:var(--cyan);margin-bottom:8px">◉ LIVE SIGNAL — what the antenna is receiving</div>
+        <!-- SDR#-style tuner controls — shown only for the RF view with a live dongle -->
+        <div id="rfControls" style="display:none;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+          <span style="color:var(--cyan);font-weight:600">TUNE</span>
+          <input id="rfFreq" type="number" step="0.1" min="25" max="1750" style="width:84px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'Spline Sans Mono';font-size:11px">
+          <span>MHz</span>
+          <button id="rfFreqGo" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:3px 9px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">Set</button>
+          <span style="color:var(--cyan);font-weight:600;margin-left:6px">SPAN</span>
+          <select id="rfSpan" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'Spline Sans Mono';font-size:11px"></select>
+          <span id="rfNudge" style="display:inline-flex;gap:4px;margin-left:4px"></span>
+          <span id="rfHint" style="color:var(--dimmer);width:100%;font-size:10px">Real FFT at the tuned centre. Only one tuner — this pauses the surveillance sweep until you exit.</span>
+        </div>
         <canvas id="sigCanvas" width="640" height="420"></canvas>
         <div id="sigCaption" style="font-size:10.5px;color:var(--dimmer);margin-top:8px;line-height:1.4"></div>
       </div>
@@ -1113,8 +1124,29 @@ function drawTunedSpectrum(g,W,H,rfDev){
   drawTunedWaterfall(g,W,H,t,specH,padL,padR,fx,pmin,pmax);
 }
 
-// scrolling waterfall fed from the live tuned spectrum (added in commit 2)
-function drawTunedWaterfall(g,W,H,t,specH,padL,padR,fx,pmin,pmax){}
+// scrolling waterfall fed from the live tuned spectrum — one real row per FFT,
+// newest on top. Same x-axis (frequency) as the spectrum above it; colour maps
+// power (dark→cyan→yellow). No synthesis: rows are the device's own FFT bins.
+function drawTunedWaterfall(g,W,H,t,specH,padL,padR,fx,pmin,pmax){
+  const pts=t.points, plotW=W-padL-padR;
+  const cols=Math.min(380,pts.length);
+  if(t.n!==sigSpecN){
+    const per=pts.length/cols, row=new Array(cols).fill(pmin);
+    for(let c=0;c<cols;c++){let mx=-999;const a=Math.floor(c*per),b=Math.max(a+1,Math.floor((c+1)*per));
+      for(let i=a;i<b&&i<pts.length;i++){if(pts[i][1]>mx)mx=pts[i][1];}row[c]=mx;}
+    sigWaterfall.unshift(row); if(sigWaterfall.length>220)sigWaterfall.pop(); sigSpecN=t.n;
+  }
+  const wfTop=specH+14, wfH=H-wfTop-2, rowH=2, colW=plotW/cols;
+  g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.textAlign='left';
+  g.fillText('waterfall — newest on top · one row per real FFT',padL,specH+11);
+  const rows=Math.min(sigWaterfall.length,Math.floor(wfH/rowH));
+  for(let r=0;r<rows;r++){const row=sigWaterfall[r];
+    for(let c=0;c<cols;c++){const v=Math.max(0,Math.min(1,(row[c]-pmin)/(pmax-pmin)));
+      const cr=Math.floor(255*Math.max(0,(v-0.4))/0.6), cg=Math.floor(255*Math.min(1,v*1.35)), cb=Math.floor(110*(1-v)+30);
+      g.fillStyle='rgb('+cr+','+cg+','+cb+')';
+      g.fillRect(padL+c*colW,wfTop+r*rowH,Math.max(1,colW+0.6),rowH);}
+  }
+}
 
 // RF: plot the REAL swept spectrum (power vs frequency) from the RTL-SDR, plus a
 // waterfall of past sweeps. No synthesis — points come straight from the device.
@@ -1298,13 +1330,48 @@ function rfTuneNow(){ if(!rfOnline())return; rfSend({cmd:'rf_tune',center_mhz:rf
 // Current tuned-view settings (the SDR# controls drive this).
 let rfRadio={center:98.0, span:2400000, demod:'WFM', audio:false};
 
+// ---- SDR# tuner controls (frequency + span) ----
+function rfPopulateSpans(){
+  const sel=$('rfSpan'); if(!sel || sel._filled) return;
+  const spans=(B._rf_meta&&B._rf_meta.spans)||[240000,1200000,1920000,2400000];
+  sel.innerHTML=spans.map(s=>'<option value="'+s+'">'+(s/1e6).toFixed(2)+' MHz</option>').join('');
+  sel._filled=true;
+}
+function rfShowControls(show){
+  const el=$('rfControls'); if(!el) return;
+  el.style.display = show ? 'flex' : 'none';
+  if(!show) return;
+  rfPopulateSpans();
+  const f=$('rfFreq'); if(f) f.value=rfRadio.center;
+  const sp=$('rfSpan'); if(sp) sp.value=String(rfRadio.span);
+}
+function rfWireControls(){
+  const f=$('rfFreq'), go=$('rfFreqGo'), sp=$('rfSpan'), nd=$('rfNudge');
+  if(!f || f._wired) return; f._wired=true;
+  const apply=()=>{ let v=parseFloat(f.value); if(isNaN(v)) return;
+    v=Math.max(25,Math.min(1750,Math.round(v*1000)/1000)); f.value=v; rfRadio.center=v; rfTuneNow(); };
+  go.onclick=apply;
+  f.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); apply(); } });
+  sp.onchange=()=>{ rfRadio.span=parseInt(sp.value,10)||2400000; rfTuneNow(); };
+  [['−1',-1],['−0.1',-0.1],['+0.1',0.1],['+1',1]].forEach(pair=>{
+    const b=document.createElement('button'); b.textContent=pair[0];
+    b.style.cssText="background:#11171e;color:var(--dim);border:1px solid #25303a;border-radius:5px;padding:3px 6px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+    b.onclick=()=>{ rfRadio.center=Math.max(25,Math.min(1750,Math.round((rfRadio.center+pair[1])*10)/10));
+      const ff=$('rfFreq'); if(ff) ff.value=rfRadio.center; rfTuneNow(); };
+    nd.appendChild(b);
+  });
+}
+rfWireControls();
+
 function openSignal(cid){
   const c=B.channels.find(x=>x.id===cid); if(!c)return;
   sigDevice=null; sigChannel=cid; sigHist=[]; sigLive=false;
   // RF channel → drive the dongle into the live tuned view (defaults to FM, the
   // easy proof point). Only one tuner, so this pauses the surveillance sweep.
   B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
-  if(cid==='rf' && rfOnline()){ rfRadio.audio=false; rfTuneNow(); }
+  const rfLive=(cid==='rf' && rfOnline());
+  rfShowControls(rfLive);
+  if(rfLive){ rfRadio.audio=false; rfTuneNow(); }
   const liveSet=new Set((B._sensors||[]).filter(s=>s.online).map(s=>s.channel));
   const hasHw=liveSet.has(cid);
   $('sigTitle').textContent=c.name+' — Live Signal';
@@ -1323,7 +1390,10 @@ function openDeviceSignal(devId){
   sigHist=(d.rssi!=null?[d.rssi]:[]); sigLive=(d.rssi!=null);
   // RF device → tune the live view to its frequency so you can see/inspect it.
   B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
-  if(d.channel==='rf' && rfOnline() && d.freq_mhz!=null){ rfRadio.center=+d.freq_mhz; rfRadio.audio=false; rfTuneNow(); }
+  const rfDevLive=(d.channel==='rf' && rfOnline() && d.freq_mhz!=null);
+  if(rfDevLive){ rfRadio.center=+d.freq_mhz; rfRadio.audio=false; }
+  rfShowControls(rfDevLive);
+  if(rfDevLive){ rfTuneNow(); }
   $('sigTitle').textContent=devTitle(d)+' — Live Signal';
   $('sigSub').textContent=(d.rssi!=null?d.rssi+' dBm · ':'no signal · ')+d.ident;
   $('sigCaption').innerHTML='<b style="color:var(--ink)">'+d.maker+(d.model&&d.model!=='—'?' · '+d.model:'')+'</b> · '+d.mac+'<br>'+
@@ -1362,6 +1432,7 @@ function syncDeviceSignal(){
 function closeSignal(){
   // leaving the RF view → release the tuner back to the surveillance sweep.
   if(rfOnline()){ rfRadio.audio=false; if(typeof rfAudioStop==='function') rfAudioStop(); rfSend({cmd:'rf_sweep'}); }
+  rfShowControls(false);
   B._rf_tuned=null;
   sigDevice=null; sigChannel=null; sigHist=[]; sigLive=false; sigWaterfall=[]; sigSpecN=-1; $('sigOverlay').classList.remove('on'); if(sigRAF){cancelAnimationFrame(sigRAF);sigRAF=null;}
 }
