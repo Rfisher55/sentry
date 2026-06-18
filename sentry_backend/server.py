@@ -331,8 +331,9 @@ async def _serve(station):
             await ws.send(json.dumps(station.latest))
             last_ts = station.latest["ts"]
             last_rf_n = -1
+            last_audio_seq = 0          # this client's own audio cursor (non-draining)
             while True:
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.03)
                 # fused device/sensor state (slow tick)
                 if station.latest["ts"] != last_ts:
                     await ws.send(json.dumps(station.latest))
@@ -345,7 +346,8 @@ async def _serve(station):
                         last_rf_n = tuned["n"]
                         await ws.send(json.dumps({"type": "rf_tuned", "tuned": tuned}))
                     if tuned and tuned.get("audio"):
-                        rate, frames = rf.pop_audio()
+                        rate, frames, newest = rf.audio_since(last_audio_seq)
+                        last_audio_seq = newest
                         for fr in frames:
                             await ws.send(json.dumps({
                                 "type": "rf_audio", "rate": rate,

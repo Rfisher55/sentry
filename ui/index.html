@@ -335,7 +335,14 @@
           <span style="color:var(--cyan);font-weight:600;margin-left:6px">SPAN</span>
           <select id="rfSpan" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'Spline Sans Mono';font-size:11px"></select>
           <span id="rfNudge" style="display:inline-flex;gap:4px;margin-left:4px"></span>
-          <span id="rfHint" style="color:var(--dimmer);width:100%;font-size:10px">Real FFT at the tuned centre. Only one tuner — this pauses the surveillance sweep until you exit.</span>
+          <span style="color:var(--cyan);font-weight:600;margin-left:6px">LISTEN</span>
+          <select id="rfDemod" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'Spline Sans Mono';font-size:11px">
+            <option value="WFM">WFM (broadcast FM)</option>
+            <option value="AM">AM</option>
+            <option value="NFM">NFM (narrowband)</option>
+          </select>
+          <button id="rfListen" style="background:#13242b;color:var(--clear);border:1px solid var(--clear);border-radius:5px;padding:3px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ LISTEN</button>
+          <span id="rfHint" style="color:var(--dimmer);width:100%;font-size:10px">Real FFT + live audio from the dongle. Only one tuner — this pauses the surveillance sweep until you exit. Open analog only (WFM/AM/NFM): it can't decode encrypted/digital or tune cellular voice.</span>
         </div>
         <canvas id="sigCanvas" width="640" height="420"></canvas>
         <div id="sigCaption" style="font-size:10.5px;color:var(--dimmer);margin-top:8px;line-height:1.4"></div>
@@ -1330,6 +1337,44 @@ function rfTuneNow(){ if(!rfOnline())return; rfSend({cmd:'rf_tune',center_mhz:rf
 // Current tuned-view settings (the SDR# controls drive this).
 let rfRadio={center:98.0, span:2400000, demod:'WFM', audio:false};
 
+// ---- live RF audio (Web Audio playback of REAL demodulated PCM) ----
+// The backend demodulates WFM/AM/NFM from the dongle's IQ and streams int16 PCM
+// frames (base64). We decode each frame and schedule it back-to-back on an
+// AudioContext, keeping a small lead buffer to smooth the single-threaded read.
+let rfAudioCtx=null, rfAudioGain=null, rfNextTime=0;
+function rfAudioEnsure(){
+  if(!rfAudioCtx){
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null;
+    rfAudioCtx=new AC();
+    rfAudioGain=rfAudioCtx.createGain(); rfAudioGain.gain.value=0.9; rfAudioGain.connect(rfAudioCtx.destination);
+  }
+  if(rfAudioCtx.state==='suspended'){ try{ rfAudioCtx.resume(); }catch(e){} }
+  return rfAudioCtx;
+}
+function rfAudioPlay(msg){
+  if(!rfRadio.audio) return;                       // ignore stray frames after stop
+  const ctx=rfAudioEnsure(); if(!ctx) return;
+  const rate=msg.rate||48000;
+  let bin; try{ bin=atob(msg.pcm); }catch(e){ return; }
+  const n=bin.length>>1; if(!n) return;
+  const buf=ctx.createBuffer(1,n,rate), ch=buf.getChannelData(0);
+  for(let i=0;i<n;i++){ let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8); if(v>32767)v-=65536; ch[i]=v/32768; }
+  const src=ctx.createBufferSource(); src.buffer=buf; src.connect(rfAudioGain);
+  const now=ctx.currentTime;
+  // The single-threaded USB read is ~94% real-time, so keep a ~0.5 s jitter
+  // buffer: enough lead that the small deficit rarely underruns, while capping
+  // latency so it stays responsive when you retune.
+  if(rfNextTime < now+0.05) rfNextTime=now+0.5;    // (re)build lead on first frame / underrun
+  if(rfNextTime > now+1.4)  rfNextTime=now+0.7;     // cap runaway latency if we got ahead
+  try{ src.start(rfNextTime); }catch(e){}
+  rfNextTime+=buf.duration;
+}
+function rfAudioStop(){
+  rfRadio.audio=false; rfNextTime=0;
+  if(rfAudioCtx){ try{ rfAudioCtx.suspend(); }catch(e){} }
+  const ls=$('rfListen'); if(ls){ ls.textContent='▶ LISTEN'; ls.style.background='#13242b'; ls.style.color='var(--clear)'; }
+}
+
 // ---- SDR# tuner controls (frequency + span) ----
 function rfPopulateSpans(){
   const sel=$('rfSpan'); if(!sel || sel._filled) return;
@@ -1340,10 +1385,12 @@ function rfPopulateSpans(){
 function rfShowControls(show){
   const el=$('rfControls'); if(!el) return;
   el.style.display = show ? 'flex' : 'none';
-  if(!show) return;
+  if(!show){ rfAudioStop(); return; }
   rfPopulateSpans();
   const f=$('rfFreq'); if(f) f.value=rfRadio.center;
   const sp=$('rfSpan'); if(sp) sp.value=String(rfRadio.span);
+  const dm=$('rfDemod'); if(dm) dm.value=rfRadio.demod;
+  const ls=$('rfListen'); if(ls){ ls.textContent='▶ LISTEN'; ls.style.background='#13242b'; ls.style.color='var(--clear)'; }
 }
 function rfWireControls(){
   const f=$('rfFreq'), go=$('rfFreqGo'), sp=$('rfSpan'), nd=$('rfNudge');
@@ -1353,6 +1400,18 @@ function rfWireControls(){
   go.onclick=apply;
   f.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); apply(); } });
   sp.onchange=()=>{ rfRadio.span=parseInt(sp.value,10)||2400000; rfTuneNow(); };
+  const dm=$('rfDemod'), ls=$('rfListen');
+  if(dm) dm.onchange=()=>{ rfRadio.demod=dm.value; if(rfRadio.audio) rfTuneNow(); };   // live re-demod
+  if(ls) ls.onclick=()=>{
+    if(!rfRadio.audio){
+      rfAudioEnsure();                     // this click is the user gesture browsers require
+      rfRadio.audio=true; rfNextTime=0;
+      ls.textContent='⏹ STOP'; ls.style.background='#3FB984'; ls.style.color='#06222a';
+    } else {
+      rfAudioStop();                       // flips rfRadio.audio=false + restyles button
+    }
+    rfTuneNow();                           // tell the dongle to start/stop demodulating
+  };
   [['−1',-1],['−0.1',-0.1],['+0.1',0.1],['+1',1]].forEach(pair=>{
     const b=document.createElement('button'); b.textContent=pair[0];
     b.style.cssText="background:#11171e;color:var(--dim);border:1px solid #25303a;border-radius:5px;padding:3px 6px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";

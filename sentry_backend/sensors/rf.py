@@ -27,6 +27,7 @@ HARDWARE & HONEST COVERAGE (Nooelec NESDR / RTL2832U + R820T tuner):
 
 from sentry_backend.sensor import Sensor, Detection
 import collections
+import queue
 import threading
 import time
 
@@ -96,9 +97,10 @@ class RFSensor(Sensor):
         self._started = False
 
         # --- tuned (SDR#-style) view state ---
-        self._mode = "sweep"            # "sweep" | "tuned"
+        self._mode = "sweep"            # "sweep" | "tuned" | "closing"
         self._epoch = 0                 # bumps when tuned center/span/gain changes
-        self._applied_epoch = -1        # last epoch the worker configured the radio to
+        self._tuned_applied_epoch = -1  # last epoch the tuned radio was configured to
+        self._sweep_configured = False  # is the radio currently in sweep config?
         self._req = {                   # current tuned request
             "center_hz": 98_000_000,
             "span_hz": 2_400_000,
@@ -107,8 +109,17 @@ class RFSensor(Sensor):
         }
         self._tuned = None              # latest tuned spectrum dict for the UI
         self._tuned_n = 0               # tuned row counter (waterfall)
-        self._audio_q = collections.deque(maxlen=24)  # int16 PCM frames (bytes)
+        # Audio is published as a sequence-numbered ring buffer (NOT a drain queue)
+        # so multiple WS clients can each read independently — one client popping
+        # frames must not starve another (e.g. the browser + a phone both listening).
+        self._audio_buf = collections.deque(maxlen=48)   # (seq, bytes) int16 PCM
+        self._audio_seq = 0
         self._audio_rate = AUDIO_RATE
+        # IQ pipeline: the worker reads the dongle back-to-back (the USB read is
+        # ~97% real-time on its own) and hands raw IQ blocks to a separate DSP
+        # thread, so demod/FFT cost never stalls the read → gapless live audio.
+        self._iq_q = queue.Queue(maxsize=4)
+        self._dsp_thread = None
 
     def available(self) -> bool:
         return _HAS_RTL and np is not None
@@ -128,15 +139,24 @@ class RFSensor(Sensor):
             "cannot tune cellular voice, and never decodes encrypted/digital content."
             % (self.TUNER_LOW_MHZ, self.TUNER_HIGH_MHZ / 1000.0))
         self._started = True
+        self._dsp_thread = threading.Thread(target=self._dsp_loop, daemon=True, name="rf-dsp")
+        self._dsp_thread.start()
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="rf-sweep")
         self._thread.start()
 
     # ---- background worker (single owner of the tuner) ----------------------
     def _run_loop(self):
         while True:
+            if self._mode == "closing":
+                return
             try:
                 if self._mode == "tuned":
-                    self._tuned_cycle()
+                    with self._lock:
+                        audio = self._req["audio"]
+                    if audio:
+                        self._run_audio_sync()       # pipelined sync read → DSP thread
+                    else:
+                        self._tuned_cycle()          # snappy sync spectrum-only
                 else:
                     self._sweep_full()
                     time.sleep(self.SCAN_PERIOD)
@@ -174,13 +194,13 @@ class RFSensor(Sensor):
             return
         # make sure the radio is in sweep config (it may have been left in a tuned
         # sample rate / fixed gain by a previous TUNED session)
-        if self._applied_epoch != -2:
+        if not self._sweep_configured:
             try:
                 self.sdr.sample_rate = self.SAMPLE_RATE
                 self.sdr.gain = "auto"
             except Exception:
                 pass
-            self._applied_epoch = -2
+            self._sweep_configured = True
         spec = []        # (freq_mhz, peak_db) — peak power per tune, DC-spike masked
         floors = []
         f = self.TUNER_LOW_MHZ
@@ -249,69 +269,119 @@ class RFSensor(Sensor):
                 self._epoch += 1
             self._mode = "tuned"
             if not r["audio"]:
-                self._audio_q.clear()
+                self._audio_buf.clear()
+        # The worker's read loop checks this state between blocks (≤ one block,
+        # ~0.25 s) and reconfigures — no async cancel needed (that crashes the
+        # device on this Windows/librtlsdr build), so switching is always clean.
 
     def set_sweep(self):
         """Return to the surveillance sweep (resumes background detection)."""
         with self._lock:
             self._mode = "sweep"
             self._tuned = None
-            self._audio_q.clear()
-        self._applied_epoch = -1   # force a sweep reconfigure next cycle
+            self._audio_buf.clear()
+        self._tuned_applied_epoch = -1   # force a tuned reconfigure next time
+
+    def _apply_tuned_config(self, req):
+        """Put the radio into the requested tuned config (rate/centre/fixed gain)."""
+        self.sdr.sample_rate = req["span_hz"]
+        self.sdr.center_freq = req["center_hz"]
+        self.sdr.gain = self._nearest_gain(self.TUNED_GAIN_DB)
+        self._sweep_configured = False   # sweep will need to reconfigure later
 
     def _tuned_cycle(self):
-        """One real read at the tuned centre: configure if needed, read IQ, build
-        the spectrum (averaged periodogram) and optionally demodulate audio."""
+        """One synchronous read at the tuned centre → real spectrum (audio OFF).
+        Snappy: a small block for a responsive analyzer/waterfall."""
         if not self.sdr:
             return
         with self._lock:
             req = dict(self._req)
             epoch = self._epoch
-        if epoch != self._applied_epoch:
+        if epoch != self._tuned_applied_epoch:
             try:
-                self.sdr.sample_rate = req["span_hz"]
-                self.sdr.center_freq = req["center_hz"]
-                self.sdr.gain = self._nearest_gain(self.TUNED_GAIN_DB)
+                self._apply_tuned_config(req)
             except Exception as e:
-                self._error = str(e)
-                time.sleep(0.2)
-                return
-            self._applied_epoch = epoch
-
+                self._error = str(e); time.sleep(0.2); return
+            self._tuned_applied_epoch = epoch
         fs = float(req["span_hz"])
-        audio_on = req["audio"]
-        demod = req["demod"]
-        # block: ~0.1 s when listening (sized to decimate cleanly), else snappier
-        if audio_on:
-            k = self._audio_decim(fs, demod)
-            nsamp = int(round(fs * 0.1 / k)) * k
-        else:
-            nsamp = self.NFFT * 16
         try:
-            x = self.sdr.read_samples(nsamp)
+            x = self.sdr.read_samples(self.NFFT * 16)
         except Exception as e:
-            self._error = str(e)
-            time.sleep(0.1)
-            return
+            self._error = str(e); time.sleep(0.1); return
+        self._emit_block(x, req, fs, audio=False)
 
+    def _run_audio_sync(self):
+        """LISTEN: read the dongle synchronously, back-to-back, in ~0.25 s blocks
+        and hand each raw IQ block to the DSP thread. Back-to-back synchronous
+        reads are ~97% real-time on their own (the per-call USB overhead amortises
+        over a big block), and moving demod/FFT to the DSP thread keeps that cost
+        off the read path — so audio stays gapless WITHOUT the async reader, whose
+        cancel corrupts the device on this Windows/librtlsdr build. The loop
+        re-checks the requested view each block, so retune/demod/stop switch
+        cleanly within one block."""
+        if not self.sdr:
+            return
+        with self._lock:
+            req = dict(self._req)
+            epoch = self._epoch
+        try:
+            self._apply_tuned_config(req)
+        except Exception as e:
+            self._error = str(e); time.sleep(0.2); return
+        self._tuned_applied_epoch = epoch
+        fs = float(req["span_hz"])
+        k = self._audio_decim(fs, req["demod"])
+        nsamp = max(k, int(round(fs * 0.25 / k)) * k)   # ~0.25 s, decimates cleanly
+        while (self._mode == "tuned" and self._epoch == epoch
+               and self._req["audio"]):
+            try:
+                x = self.sdr.read_samples(nsamp)
+            except Exception as e:
+                self._error = str(e); time.sleep(0.1); return
+            try:
+                self._iq_q.put_nowait((x, req, fs))
+            except queue.Full:
+                pass                                  # DSP behind (rare): drop this block
+
+    def _dsp_loop(self):
+        """Consume IQ blocks from the read pipeline and turn each into a real
+        spectrum + demodulated audio. Runs parallel to the USB read so reads
+        never wait on DSP."""
+        while True:
+            try:
+                x, req, fs = self._iq_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if self._mode == "closing":
+                return
+            try:
+                self._emit_block(x, req, fs, audio=True)
+            except Exception as e:                    # one bad block ≠ dead stream
+                self._error = str(e)
+
+    def _emit_block(self, x, req, fs, audio):
+        """Build the real spectrum from one IQ block and (optionally) demodulate
+        audio, publishing both atomically for the UI/clients."""
         spec = self._periodogram(x, req["center_hz"], fs)
         pcm = None
-        if audio_on:
-            pcm, arate = self._demodulate(x, fs, demod)
-
+        if audio:
+            pcm, arate = self._demodulate(x, fs, req["demod"])
         with self._lock:
             self._tuned_n += 1
             spec["n"] = self._tuned_n
             self._tuned = spec
             if pcm is not None:
                 self._audio_rate = arate
-                self._audio_q.append(pcm)
+                self._audio_seq += 1
+                self._audio_buf.append((self._audio_seq, pcm))
 
     def _periodogram(self, x, center_hz, fs):
         """Real averaged power spectrum across the tuned span, peak-held down to
         SPEC_BINS display points so narrow carriers stay visible."""
         N = self.NFFT
-        nseg = max(1, len(x) // N)
+        # cap averaging at a few segments: enough to smooth the trace, but cheap
+        # so a wide span never starves the real-time audio throughput.
+        nseg = max(1, min(8, len(x) // N))
         win = np.hanning(N)
         acc = np.zeros(N)
         for i in range(nseg):
@@ -394,14 +464,15 @@ class RFSensor(Sensor):
 
     @staticmethod
     def _deemphasis(a, fs, tau=75e-6):
-        """75 µs FM de-emphasis (one-pole IIR) — tames the bright treble hiss."""
+        """75 µs FM de-emphasis — tames bright treble hiss. Implemented as a short
+        FIR approximation of the one-pole IIR so it's a single vectorised convolve
+        (no per-sample Python loop), which keeps each audio cycle near real-time."""
         alpha = 1.0 - np.exp(-1.0 / (fs * tau))
-        y = np.empty_like(a)
-        acc = 0.0
-        for i in range(len(a)):
-            acc += alpha * (a[i] - acc)
-            y[i] = acc
-        return y
+        b = 1.0 - alpha
+        K = int(min(64, max(4, np.log(0.01) / np.log(b)))) if b < 1 else 4
+        h = alpha * (b ** np.arange(K))
+        h /= h.sum()                      # unity DC gain (preserve level)
+        return np.convolve(a, h, mode="same")
 
     def _nearest_gain(self, db):
         try:
@@ -426,14 +497,14 @@ class RFSensor(Sensor):
                 return None
             return dict(self._tuned)
 
-    def pop_audio(self):
-        """Pop pending PCM frames (drains the queue). Returns (rate, [bytes])."""
+    def audio_since(self, after_seq):
+        """Return PCM frames newer than after_seq WITHOUT consuming them, so every
+        client reads independently. Returns (rate, [bytes], newest_seq). A client
+        that falls further behind than the ring buffer (48 frames ≈ 5 s) simply
+        resyncs to the newest — a brief gap, never a crash."""
         with self._lock:
-            if not self._audio_q:
-                return self._audio_rate, []
-            frames = list(self._audio_q)
-            self._audio_q.clear()
-            return self._audio_rate, frames
+            frames = [b for (s, b) in self._audio_buf if s > after_seq]
+            return self._audio_rate, frames, self._audio_seq
 
     def view_meta(self):
         """Static info the UI needs to build the tuned controls."""
@@ -465,7 +536,11 @@ class RFSensor(Sensor):
         return list(best.values())
 
     def stop(self):
+        # signal the read loop to exit (it checks mode between blocks), let the
+        # in-flight synchronous read finish, then release the device.
+        self._mode = "closing"
         if self.sdr:
+            time.sleep(0.35)            # > one read block, so no read is in flight
             try:
                 self.sdr.close()
             except Exception:
