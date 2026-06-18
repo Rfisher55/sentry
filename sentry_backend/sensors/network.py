@@ -108,8 +108,11 @@ class NetworkSensor(Sensor):
         """Return {ip: mac} for hosts on our subnet from the OS ARP cache."""
         out = ""
         try:
+            # errors="replace": guard against non-ASCII bytes in the ARP table
+            # (e.g. an interface/host label) that aren't valid in the console code
+            # page — without it the decode crashes the scan thread.
             out = subprocess.run(["arp", "-a"], capture_output=True,
-                                 text=True, timeout=8).stdout
+                                 text=True, errors="replace", timeout=8).stdout
         except Exception:
             return {}
         table = {}

@@ -81,9 +81,14 @@ class WiFiSensor(Sensor):
 
     # ---- platform scanners: return list of AP dicts ------------------------
     def _scan_netsh(self):
+        # errors="replace": an SSID can contain bytes that aren't valid in the
+        # console's code page (e.g. 0x81 in cp1252). Without this, the decode
+        # raises UnicodeDecodeError inside subprocess's reader thread and the
+        # whole scan dies. Replacing bad bytes with � keeps the sensor alive;
+        # BSSID/signal/channel are ASCII so parsing is unaffected.
         out = subprocess.run(
             ["netsh", "wlan", "show", "networks", "mode=bssid"],
-            capture_output=True, text=True, timeout=15).stdout
+            capture_output=True, text=True, errors="replace", timeout=15).stdout
         aps = []
         ssid = ""
         cur = None
@@ -124,7 +129,7 @@ class WiFiSensor(Sensor):
         out = subprocess.run(
             ["nmcli", "-t", "-f", "BSSID,SSID,CHAN,SIGNAL,FREQ", "device", "wifi",
              "list", "--rescan", "auto"],
-            capture_output=True, text=True, timeout=20).stdout
+            capture_output=True, text=True, errors="replace", timeout=20).stdout
         aps = []
         for line in out.strip().splitlines():
             parts = line.replace("\\:", "§").split(":")
