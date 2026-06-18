@@ -44,6 +44,11 @@
   .radarwrap{flex:1;display:flex;align-items:center;justify-content:center;padding:10px;min-height:0}
   #radar{max-width:100%;max-height:100%}
   .maphint{padding:7px 14px;font-size:10px;color:var(--dimmer);text-align:center;border-top:1px solid var(--line);line-height:1.4;flex:none}
+  .radarctl{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;border-top:1px solid var(--line);flex:none}
+  .radarctl .rcside{display:flex;align-items:center;gap:8px}
+  .radarctl input[type=range]{width:120px}
+  #roomSetup input,#roomSetup select{background:var(--slate);border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:3px 6px;font-family:'JetBrains Mono',monospace;font-size:11px}
+  .ox.on{background:var(--cyan);color:#04222a;border-color:var(--cyan)}
 
   .right{width:52%;display:flex;flex-direction:column;overflow:hidden;min-width:0}
   .ch{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);padding:10px 14px 6px;font-weight:700;flex:none}
@@ -256,12 +261,24 @@
         </div>
       </div>
       <div class="radarwrap"><canvas id="radar" width="560" height="560"></canvas></div>
-      <div style="display:flex;gap:6px;align-items:center;margin:6px 0">
-        <button class="ox" id="zoomOut" style="padding:4px 12px">– zoom</button>
-        <button class="ox" id="zoomIn" style="padding:4px 12px">+ zoom</button>
-        <span id="zoomLbl" style="font-size:10px;color:var(--dimmer)"></span>
+      <div class="radarctl">
+        <div class="rcside">
+          <span class="ctrllbl">RANGE</span>
+          <input type="range" id="rangeSlider" min="2" max="50" value="13" step="1" title="How far out the radar reaches (approx, from signal strength)">
+          <span class="ctrlval" id="rangeVal">≈13 m</span>
+          <button class="ox" id="zoomOut" title="Range in (closer only)">−</button>
+          <button class="ox" id="zoomIn" title="Range out (farther)">+</button>
+        </div>
+        <button class="ox" id="roomToggle" title="Sketch your room and place devices by approximate distance">▢ ROOM MAP</button>
       </div>
-      <div class="maphint">Tap a dot to open that device. Rings = estimated distance from signal strength (live) — nearer the centre = stronger/closer. Cameras are squares; LAN devices (found by IP, no radio range) sit on the dashed outer ring. <b>No direction is shown:</b> a single built-in antenna can't measure bearing, so the angle around the rings is just spacing to separate dots — it is NOT a compass. Use Locate to home in by signal strength; true direction needs the directional antenna (not installed).</div>
+      <div id="roomSetup" style="display:none;gap:8px;align-items:center;padding:6px 12px;flex-wrap:wrap;border-top:1px solid var(--line)">
+        <span class="ctrllbl">ROOM</span>
+        <input type="number" id="roomW" value="5" min="1" max="40" step="0.5" style="width:54px"> ×
+        <input type="number" id="roomL" value="4" min="1" max="40" step="0.5" style="width:54px">
+        <select id="roomUnit" style="font-size:11px"><option value="m">metres</option><option value="ft">feet</option></select>
+        <span class="ctrlval" id="roomNote" style="color:var(--amber)">approximate placement — direction needs a directional antenna/KrakenSDR</span>
+      </div>
+      <div class="maphint" id="maphint">Tap a dot to open that device. Rings = estimated distance from signal strength (live) — nearer the centre = stronger/closer. Cameras are squares; LAN devices (found by IP, no radio range) sit on the dashed outer ring. <b>No direction is shown:</b> a single built-in antenna can't measure bearing, so the angle around the rings is just spacing to separate dots — it is NOT a compass. Use Locate to home in by signal strength; true direction needs the directional antenna (not installed).</div>
     </div>
     <div class="right">
       <div class="ch" id="devHdr">Detected devices</div>
@@ -275,6 +292,11 @@
           <span class="ctrllbl">SENSITIVITY (gate)</span>
           <input type="range" id="threshSlider" min="-100" max="-30" value="-100" step="1">
           <span class="ctrlval" id="threshVal">−100 dBm</span>
+        </div>
+        <div class="ctrlrow">
+          <span class="ctrllbl">DISTANCE FILTER (approx)</span>
+          <input type="range" id="distSlider" min="1" max="50" value="50" step="1" title="Show only devices within this approximate distance (from signal strength)">
+          <span class="ctrlval" id="distVal">all</span>
         </div>
         <div class="ctrlrow" id="bandChips">
           <span class="ctrllbl">BANDS</span>
@@ -562,6 +584,9 @@ function isNewOrChanged(d){
 function passesFilters(d){
   if(!gBands.has(d.channel)) return false;
   if(gThreshold>-100 && !(d.rssi==null || d.rssi>=gThreshold)) return false;
+  // distance filter (approx, from signal strength). LAN/no-distance devices show
+  // only when the filter is wide open (they have no measurable range).
+  if(gDistFilter<50){ if(d.rssi==null) return false; if((d.distance||0)>gDistFilter) return false; }
   if(gNewOnly && !isNewOrChanged(d)) return false;
   return true;
 }
@@ -805,45 +830,80 @@ function syncDrawer(){
 
 // ---------- RADAR ----------
 let radarRAF=null;
-let radarZoom=1;               // 1 = 13 m at the edge; >1 zooms in
+let radarRange=13;             // metres represented at the radar edge (adjustable)
+let gDistFilter=50;            // show only devices within this approx distance (50=all)
+let roomMode=false;            // room-map shell (approximate distance placement)
 let radarBlips=[];             // {id,x,y,r} for click/tap hit-testing
+// named distance tiers (approximate, from signal strength) for the rings
+function distTier(m){ return m<=1?'very close':m<=4?'close':m<=10?'nearby':'far'; }
 // PROXIMITY display — distance only, NO direction. Built-in BLE/Wi-Fi can't
 // measure bearing, so we never invent one: a device's RING = its estimated
 // distance from signal strength; its angle around the ring is even spacing to
 // keep dots separated and tappable, and means nothing directionally.
+// CSS-variable colours read once for canvas drawing (theme-aware)
+function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim()||'#888'; }
 function drawRadar(){
   const cv=$('radar'),g=cv.getContext('2d'),W=cv.width,H=cv.height,cx=W/2,cy=H/2,R=W*0.43;
-  const maxRange=13/radarZoom;
+  const maxRange=radarRange;
+  const COL_LINE=cssv('--line'), COL_DIM=cssv('--dimmer'), COL_YOU=cssv('--clear');
+  const ppm=R/maxRange;                              // pixels per metre
   g.clearRect(0,0,W,H);
   radarBlips=[];
-  // concentric DISTANCE rings (proximity only) + range labels
-  g.strokeStyle='#1E242C';g.lineWidth=2;
-  for(let i=1;i<=3;i++){g.beginPath();g.arc(cx,cy,R*i/3,0,7);g.stroke();}
-  g.fillStyle='#5A6470';g.font='11px JetBrains Mono';
-  for(let i=1;i<=3;i++)g.fillText('≈'+(maxRange*i/3).toFixed(1)+'m',cx+4,cy-R*i/3+14);
-  // outer dashed ring = LAN devices (found by IP, no RF range)
-  g.strokeStyle='#22303a';g.setLineDash([3,4]);g.beginPath();g.arc(cx,cy,R*0.99,0,7);g.stroke();g.setLineDash([]);
-  g.fillStyle='#3a4650';g.fillText('LAN ring (on your Wi-Fi · no RF range)',cx-R*0.7,cy-R*0.99-4);
+  if(roomMode){ drawRoomShell(g,cx,cy,R,maxRange); }
+  else {
+    // concentric DISTANCE rings (proximity only) + range + named tier labels
+    g.strokeStyle=COL_LINE;g.lineWidth=2;
+    for(let i=1;i<=4;i++){g.beginPath();g.arc(cx,cy,R*i/4,0,7);g.stroke();}
+    g.fillStyle=COL_DIM;g.font='11px JetBrains Mono';g.textAlign='left';
+    for(let i=1;i<=4;i++){const m=maxRange*i/4;g.fillText('≈'+m.toFixed(m<10?1:0)+'m · '+distTier(m),cx+4,cy-R*i/4+14);}
+    // outer dashed ring = LAN devices (found by IP, no RF range)
+    g.strokeStyle=COL_LINE;g.setLineDash([3,4]);g.beginPath();g.arc(cx,cy,R*0.995,0,7);g.stroke();g.setLineDash([]);
+  }
   // center (you)
-  g.fillStyle='#3FB984';g.beginPath();g.arc(cx,cy,7,0,7);g.fill();
-  g.strokeStyle='rgba(63,185,132,.3)';g.lineWidth=2;g.beginPath();g.arc(cx,cy,12,0,7);g.stroke();
-  g.fillStyle='#5A6470';g.font='10px JetBrains Mono';g.textAlign='center';g.fillText('YOU · distance only',cx,cy+26);g.textAlign='left';
-  const devs=B.devices, N=Math.max(1,devs.length);
-  devs.forEach((d,i)=>{
+  g.fillStyle=COL_YOU;g.beginPath();g.arc(cx,cy,7,0,7);g.fill();
+  g.strokeStyle=COL_YOU+'55';g.lineWidth=2;g.beginPath();g.arc(cx,cy,12,0,7);g.stroke();
+  g.fillStyle=COL_DIM;g.font='10px JetBrains Mono';g.textAlign='center';g.fillText('YOU · distance only',cx,cy+26);g.textAlign='left';
+  // distance filter + range cull, then place
+  const shown=B.devices.filter(d=>{
+    if(d.rssi==null) return gDistFilter>=50;          // LAN (no distance) only when filter = all
+    if((d.distance||0)>gDistFilter) return false;     // distance filter (approx)
+    return true;
+  });
+  const N=Math.max(1,shown.length);
+  shown.forEach((d,i)=>{
     const lan=(d.rssi==null);                          // no RF range → outer ring
-    const rr=lan?R*0.99:R*Math.min(1,(d.distance||0)/maxRange);
+    const rr=lan?R*0.995:R*Math.min(1,(d.distance||0)/maxRange);
     // ANGLE = even spacing for layout only (NOT a measured direction).
     const ang=(i/N)*Math.PI*2 - Math.PI/2;
     const x=cx+Math.cos(ang)*rr,y=cy+Math.sin(ang)*rr,c=SEVC[d.severity],sel=d.id===selectedDev;
     const rad=sel?9:6;
     radarBlips.push({id:d.id,x,y,r:rad});
-    if(!lan && d.uncertainty){g.strokeStyle=c+'44';g.lineWidth=1;g.beginPath();g.arc(x,y,Math.max(5,d.uncertainty*5/radarZoom),0,7);g.stroke();}
+    if(!lan && d.uncertainty){g.strokeStyle=c+'44';g.lineWidth=1;g.beginPath();g.arc(x,y,Math.max(4,Math.min(R*0.4,d.uncertainty*ppm)),0,7);g.stroke();}
     g.fillStyle=c;g.shadowColor=c;g.shadowBlur=IS_SMALL?0:(sel?18:7);
     if(d.category==='camera'){g.fillRect(x-rad,y-rad,rad*2,rad*2);}   // cameras = squares
     else{g.beginPath();g.arc(x,y,rad,0,7);g.fill();}
     g.shadowBlur=0;
     if(sel){g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.arc(x,y,13,0,7);g.stroke();}
   });
+}
+// ROOM-MAP SHELL — sketch the room as a rectangle scaled to the radar range, YOU
+// at centre. Devices are still placed by DISTANCE ONLY (rings), never by a faked
+// bearing; built so real angle-of-arrival can slot in when that hardware exists.
+function drawRoomShell(g,cx,cy,R,maxRange){
+  const u=($('roomUnit')||{}).value||'m';
+  let w=parseFloat(($('roomW')||{}).value)||5, l=parseFloat(($('roomL')||{}).value)||4;
+  if(u==='ft'){ w*=0.3048; l*=0.3048; }
+  // scale: the room's longer half-dimension maps within the radar radius
+  const half=Math.max(w,l)/2, sc=Math.min(R/Math.max(half,maxRange/2), R/half);
+  const rw=w*sc, rl=l*sc;
+  g.strokeStyle=cssv('--cyan');g.lineWidth=2;g.strokeRect(cx-rw/2,cy-rl/2,rw,rl);
+  g.fillStyle=cssv('--dimmer');g.font='10px JetBrains Mono';g.textAlign='center';
+  g.fillText(w.toFixed(1)+'m × '+l.toFixed(1)+'m room (approx)',cx,cy-rl/2-8);
+  g.textAlign='left';
+  // faint distance rings inside the room for scale
+  g.strokeStyle=cssv('--line');g.setLineDash([2,4]);
+  for(let i=1;i<=3;i++){g.beginPath();g.arc(cx,cy,R*i/4,0,7);g.stroke();}
+  g.setLineDash([]);
 }
 let _radarLast=0;
 function radarLoop(ts){
@@ -854,7 +914,7 @@ function radarLoop(ts){
 }
 function startRadar(){ if(!radarRAF) radarRAF=requestAnimationFrame(radarLoop); }
 function stopRadar(){ if(radarRAF){cancelAnimationFrame(radarRAF);radarRAF=null;} }
-function radarZoomBy(f){ radarZoom=Math.max(0.5,Math.min(8,radarZoom*f)); }
+function setRange(m){ radarRange=Math.max(2,Math.min(50,Math.round(m))); const s=$('rangeSlider'),v=$('rangeVal'); if(s)s.value=radarRange; if(v)v.textContent='≈'+radarRange+' m'; }
 // click a blip to open that device
 (function wireRadarClick(){
   const cv=$('radar'); if(!cv) return;
@@ -871,12 +931,25 @@ function radarZoomBy(f){ radarZoom=Math.max(0.5,Math.min(8,radarZoom*f)); }
     if(best) selectDevice(best.id);
   };
 })();
-(function wireZoom(){
-  const zl=()=>{const e=$('zoomLbl'); if(e) e.textContent=(13/radarZoom).toFixed(1)+'m range';};
+(function wireSpatial(){
+  // RANGE (left): slider + −/+ step buttons set how far out the radar reaches
+  const rs=$('rangeSlider');
+  if(rs) rs.oninput=()=>setRange(parseInt(rs.value,10));
   const zi=$('zoomIn'), zo=$('zoomOut');
-  if(zi) zi.onclick=()=>{radarZoomBy(1.5);zl();};
-  if(zo) zo.onclick=()=>{radarZoomBy(1/1.5);zl();};
-  zl();
+  if(zi) zi.onclick=()=>setRange(radarRange+Math.max(1,Math.round(radarRange*0.5)));  // range out
+  if(zo) zo.onclick=()=>setRange(radarRange-Math.max(1,Math.round(radarRange*0.33))); // range in
+  setRange(radarRange);
+  // DISTANCE FILTER (right): show only devices within N metres (approx)
+  const ds=$('distSlider'), dv=$('distVal');
+  if(ds) ds.oninput=()=>{ gDistFilter=parseInt(ds.value,10);
+    if(dv) dv.textContent=(gDistFilter>=50?'all':'≤ ≈'+gDistFilter+' m'); if(typeof syncDevList==='function') syncDevList(); };
+  // ROOM MAP shell toggle
+  const rt=$('roomToggle');
+  if(rt) rt.onclick=()=>{ roomMode=!roomMode; rt.classList.toggle('on',roomMode);
+    const rsu=$('roomSetup'); if(rsu) rsu.style.display=roomMode?'flex':'none';
+    const mh=$('maphint'); if(mh) mh.innerHTML = roomMode
+      ? '<b>Room-map shell (approximate).</b> Your room is drawn to scale with YOU at the centre. Devices are still placed by <b>distance only</b> (rings), not real direction — <b>direction requires a directional antenna / KrakenSDR.</b> Built ready to show true bearing once that hardware is added.'
+      : 'Tap a dot to open that device. Rings = estimated distance from signal strength (live). <b>No direction is shown:</b> a single built-in antenna can\'t measure bearing, so the angle is just spacing — use Locate to home in by signal. True direction needs the directional antenna (not installed).'; };
 })();
 // ---- survey control bar wiring ----
 (function wireControls(){
