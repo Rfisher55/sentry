@@ -226,8 +226,8 @@
       <button class="tab" data-tab="channels">Channels</button>
       <button class="tab" data-tab="radio">Radio</button>
       <button class="tab" data-tab="network">Network</button>
-      <button class="tab" data-tab="threats">Threats</button>
-      <button class="tab" data-tab="surface">Defense</button>
+      <button class="tab" data-tab="threats">Watchers</button>
+      <button class="tab" data-tab="surface">Evidence</button>
     </div>
     <div class="status">
       <span>MONITORING <b>LIVE</b></span>
@@ -409,58 +409,48 @@
     </div>
   </div>
 
-  <!-- THREAT DEFENSE (Flipper/Unleashed-class threats — detect-only, receive-only) -->
+  <!-- WATCHERS — counter-surveillance: who/what is watching you (detect & locate only) -->
   <div class="view" id="threats">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
-      <div class="gridhd">Threat Defense — spot tools that may be targeting you</div>
+      <div class="gridhd">Who's Watching You — counter-surveillance command center</div>
       <div style="font-family:'Spline Sans Mono';font-size:11px;background:#11202a;border:1px solid #1e3a44;border-radius:8px;padding:8px 11px;color:var(--cyan)">
-        🛡 <b>DETECT-ONLY / RECEIVE-ONLY.</b> SENTRY detects and advises — it never transmits, replays, clones, emulates, jams, or attacks any device (the RTL-SDR physically cannot transmit). This watches for signs that a tool like a Flipper Zero or an RF replay/brute-force attempt may be near or in use against you.
+        🕵 Every device SENTRY flags as <b>watching, listening to, or tracking you</b> — ranked by threat, with what it can capture and what to do. <b>Detect &amp; locate only:</b> find it, then <b>remove it from your own space or report it</b> — SENTRY never jams, hacks, or attacks (that's illegal and escalates risk).
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1;min-width:260px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
-          <div class="sidehd" style="color:var(--clear);margin-bottom:5px">📡 Flipper Zero / rogue RF multitool</div>
-          <div id="tdFlipper" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)">Scanning Bluetooth…</div>
-        </div>
-        <div style="flex:1;min-width:260px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
-          <div class="sidehd" style="color:var(--amber);margin-bottom:5px">🔁 RF replay / brute-force / jam watch (fob bands)</div>
-          <div id="tdRf" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)">Watching 315 / 433 / 868 MHz…</div>
-        </div>
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+        <span id="watchCount" style="color:var(--clear);font-weight:600">Scanning…</span>
+        <span style="color:var(--dimmer)">·</span>
+        <span style="color:var(--dimmer);font-size:10px">Live from RF + Wi-Fi + Bluetooth + network sensors. Tap a suspect to open it; use Locate to home in by signal.</span>
       </div>
-      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <div class="sidehd" style="color:var(--clear)">⌨ BadUSB / rogue HID watch</div>
-          <button id="tdHidBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ SCAN USB INPUT DEVICES</button>
-          <button id="tdHidSnap" style="background:#13242b;color:var(--cyan);border:1px solid #25303a;border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">📸 SNAPSHOT</button>
-        </div>
-        <div id="tdHid" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px">A BadUSB (“rubber ducky”) registers as a new keyboard. Snapshot now, and if a keyboard appears later that you didn’t plug in — investigate.</div>
-      </div>
-      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
-        <div class="sidehd" style="color:var(--cyan);margin-bottom:5px">🛡 Hardening against these</div>
-        <div id="tdHarden" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim);line-height:1.55"></div>
-      </div>
+      <div id="watchList" style="display:flex;flex-direction:column;gap:7px"></div>
     </div>
   </div>
 
-  <!-- ATTACK-SURFACE DEFENSE (RedAmon-class automated-pentest counter — defensive) -->
+  <!-- EVIDENCE — follow-test + timestamped evidence log (for police / protective order) -->
   <div class="view" id="surface">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
-      <div class="gridhd">Attack-Surface Defense — be ready for automated pentest tools</div>
+      <div class="gridhd">Follow-Test &amp; Evidence Log</div>
       <div style="font-family:'Spline Sans Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
-        🎯 <b>DEFENSIVE · YOUR OWN network only.</b> An autonomous framework (RedAmon-class) would scan, enumerate, match CVEs and try to exploit — automatically. SENTRY does NOT exploit anything; it shows what such a tool would hit FIRST on your network, detects an active scan against you, and tells you what to close. Beat the automation by fixing the exposure first.
+        🧾 The safe, legal way to "stop" a stalker is <b>detect → locate → remove from your own space → document → report.</b> This builds a timestamped record you can hand to police or use for a protective order. <b>Don't attack their gear</b> — it's illegal and tips them off.
+      </div>
+      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
+        <div class="sidehd" style="color:var(--clear);margin-bottom:5px">🎯 Am I being followed? (move-and-recheck test)</div>
+        <div style="color:var(--dim);font-size:10.5px;margin-bottom:7px">A device near you only proves it's nearby — not that it's following. To tell: <b>1)</b> SNAPSHOT the suspects here, <b>2)</b> physically move to a different place (walk/drive a few minutes), <b>3)</b> RE-CHECK. Anything still with you after you moved is <b>traveling with you</b> — that's the real "following" signal.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="evSnapBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">📸 SNAPSHOT SUSPECTS</button>
+          <button id="evRecheckBtn" style="background:#13242b;color:var(--amber);border:1px solid #5a4416;border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">🔀 RE-CHECK (after moving)</button>
+        </div>
+        <div id="evFollow" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
       </div>
       <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <div class="sidehd" style="color:var(--alert)">🎯 What an attacker hits first</div>
-          <button id="asScanBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ EXPOSURE CHECK (scan gateway)</button>
+          <div class="sidehd" style="color:var(--clear)">🧾 Evidence log</div>
+          <button id="evExportBtn" style="background:#13242b;color:var(--clear);border:1px solid #244a3a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">📋 EXPORT (CSV / print)</button>
+          <button id="evClearBtn" style="background:#13242b;color:var(--dimmer);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">🗑 CLEAR</button>
         </div>
-        <div id="asView" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px">Pulls from your latest Network-tab scans, ranked by attacker priority. Run a scan in the Network tab, or click EXPOSURE CHECK above.</div>
+        <div id="evLog" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
       </div>
-      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <div class="sidehd" style="color:var(--clear)">🛰 Are you being scanned right now?</div>
-          <button id="asIdsBtn" style="background:#13242b;color:var(--clear);border:1px solid #244a3a;border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ WATCH 8s FOR SCANS</button>
-        </div>
-        <div id="asIds" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px">Captures 8s and flags port-scan / probe signatures aimed at you (the IDS).</div>
+      <div style="font-family:'Spline Sans Mono';font-size:10px;color:var(--dimmer);line-height:1.5;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px">
+        <b style="color:var(--clear)">If you think you're being followed right now:</b> get to a public place, don't go home, tell someone where you are, and consider calling local police — a planted tracker or being followed is something they can act on. Remove a tracker from <b>your own</b> property (e.g. take out its battery) and keep it as evidence; don't tamper with devices that aren't yours — photograph them in place and report instead.
       </div>
     </div>
   </div>
@@ -617,8 +607,8 @@ document.querySelectorAll('.tab').forEach(t=>{
     if(t.dataset.tab==='radio'){ if(typeof startRadio==='function') startRadio(); }
     else { if(typeof stopRadio==='function') stopRadio(); }
     if(t.dataset.tab==='network'){ if(typeof startNetwork==='function') startNetwork(); }
-    if(t.dataset.tab==='threats'){ if(typeof startThreats==='function') startThreats(); } else { if(typeof stopThreats==='function') stopThreats(); }
-    if(t.dataset.tab==='surface'){ if(typeof startSurface==='function') startSurface(); }
+    if(t.dataset.tab==='threats'){ if(typeof startWatchers==='function') startWatchers(); } else { if(typeof stopWatchers==='function') stopWatchers(); }
+    if(t.dataset.tab==='surface'){ if(typeof startEvidence==='function') startEvidence(); }
   };
 });
 
@@ -1889,99 +1879,96 @@ function startNetwork(){
   rfSend({cmd:'net_nmap_status'});
 }
 
-// ================= THREAT DEFENSE (Flipper / RF replay / BadUSB) ==============
-let _tdTimer=null, _tdHidSnap=null;
-const FOB_BANDS=[[300,348,'315 MHz remotes/TPMS'],[387,464,'433 MHz fobs/sensors'],[775,928,'868/915 MHz ISM']];
-function fobBand(mhz){ for(const b of FOB_BANDS){ if(mhz>=b[0]&&mhz<=b[1]) return b[2]; } return null; }
-function looksFlipper(d){ return /flipper/i.test([d.kind,d.model,d.ident,d.maker,d.device_type].join(' ')); }
-function tdScan(){
-  // Flipper / rogue BLE multitool — from the live Bluetooth scan
-  const fl=(B.devices||[]).filter(d=>d.channel==='bluetooth'&&looksFlipper(d));
-  const fe=$('tdFlipper');
-  if(fe){
-    if(fl.length){ fe.innerHTML=fl.map(d=>'<div style="color:var(--alert)">⚠ <b>Flipper Zero detected</b> — '+(d.model||d.kind||'BLE')+(d.rssi?' · '+Math.round(d.rssi)+' dBm':'')+'<div style="color:var(--dim);font-size:10px">A Flipper is a Sub-GHz/NFC/IR/BadUSB multitool. Near you doesn’t mean it’s attacking — but keep fobs/cards out of reach and watch the RF + BadUSB panels.</div></div>').join(''); }
-    else fe.innerHTML='<span style="color:var(--clear)">No Flipper-class BLE device seen ✓</span> <span style="color:var(--dimmer)">(detects one advertising over Bluetooth with a default name; a renamed or BLE-off unit won’t show)</span>';
-  }
-  // RF replay/brute-force/jam watch — fob-band detections from the SDR
-  const re=$('tdRf');
-  if(re){
-    if(!rfOnline()){ re.innerHTML='<span style="color:var(--dimmer)">RF sensor offline — plug in the RTL-SDR to watch 315/433/868 MHz for replay/brute-force/jam bursts.</span>'; }
-    else {
-      const hits=(B.devices||[]).filter(d=>d.channel==='rf'&&d.freq_mhz&&fobBand(d.freq_mhz));
-      if(!hits.length) re.innerHTML='<span style="color:var(--clear)">No fob-band RF activity right now ✓</span> <span style="color:var(--dimmer)">(watching 315 / 433 / 868 MHz)</span>';
-      else { const many=hits.length>=4;
-        re.innerHTML=(many?'<div style="color:var(--alert)">⚠ Elevated fob-band activity ('+hits.length+' bursts) — repeated bursts can mean a replay/brute-force/jam attempt. Verify it’s your own remote.</div>':'<div style="color:var(--amber)">'+hits.length+' fob-band signal(s) seen:</div>')
-          +hits.slice(0,6).map(d=>'<div style="font-size:10.5px;color:var(--dim)">'+d.freq_mhz.toFixed(2)+' MHz · '+fobBand(d.freq_mhz)+(d.rssi?' · '+Math.round(d.rssi)+' dBm':'')+'</div>').join('');
-      }
-    }
-  }
+// ================= WATCHERS — counter-surveillance command center ============
+// Surfaces the devices SENTRY already flags as surveilling/tracking you, ranked.
+let _watchTimer=null;
+const WATCH_CATS={'camera':'📷','tracker':'🏷','audio bug':'🎙','GPS tracker':'🛰',
+  'rogue tower':'📡','wifi attack':'📶','skimmer':'💳','unknown transmitter':'📻'};
+function isWatcher(d){ return !!d && (WATCH_CATS[d.category]!==undefined || (d.severity==='alert'&&d.surveilling)); }
+function watchSuspects(){
+  return (B.devices||[]).filter(isWatcher)
+    .sort((a,b)=>((SEVRANK[b.severity]||0)-(SEVRANK[a.severity]||0))||((b.confidence||0)-(a.confidence||0)));
 }
-function tdHidRun(){ const el=$('tdHid'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Enumerating USB input devices…</span>'; rfSend({cmd:'threat_hid_audit'}); }
-function tdRenderHid(r){
-  const el=$('tdHid'); if(!el) return;
-  if(!r||!r.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((r&&r.error)||'HID scan failed')+'</span>'; return; }
-  const kb=(r.devices||[]).filter(d=>d.class==='Keyboard');
-  let newKb=[];
-  if(_tdHidSnap){ const prev=new Set(_tdHidSnap); newKb=kb.filter(d=>!prev.has(d.id)); }
-  let h='<div style="color:var(--ink)">'+r.keyboards+' keyboard(s), '+(r.devices||[]).length+' HID input devices present</div>';
-  if(newKb.length) h+='<div style="color:var(--alert)">⚠ NEW keyboard since snapshot: '+newKb.map(d=>d.name).join(', ')+' — a BadUSB injects keystrokes as a fake keyboard. If you didn’t plug this in, UNPLUG it.</div>';
-  h+=kb.map(d=>'<div style="font-size:10.5px;color:var(--dim)">⌨ '+d.name+'</div>').join('');
-  h+='<div style="color:var(--dimmer);font-size:10px;margin-top:3px">'+(r.note||'')+'</div>';
-  el.innerHTML=h;
-  window._tdLastKb=kb;
+function watchFind(id){ return (B.devices||[]).find(d=>d.id===id); }
+function watchLocate(id){ const d=watchFind(id); if(d&&typeof openLocate==='function') openLocate(d); }
+function watchOpen(id){ if(watchFind(id)&&typeof selectDevice==='function') selectDevice(id); }
+function watchLog(id){ const d=watchFind(id); if(d) evAdd(d,'logged from Watchers'); }
+function watchRender(){
+  const host=$('watchList'), cnt=$('watchCount'); if(!host) return;
+  const s=watchSuspects();
+  if(cnt) cnt.textContent=s.length?(s.length+' watcher'+(s.length===1?'':'s')+' detected'):'No watchers detected right now';
+  if(!s.length){ host.innerHTML='<div style="color:var(--clear);font-size:11px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">No surveillance devices on the active sensors right now. ✓<div style="color:var(--dimmer);font-size:10px;margin-top:4px">A device with its radio OFF (e.g. a recorder saving to a card) emits nothing — only a physical/optical search catches those.</div></div>'; return; }
+  host.innerHTML=s.map(d=>{
+    const ic=WATCH_CATS[d.category]||'⚠', c=SEVC[d.severity]||'#888';
+    const counters=(d.counter||[]).map(x=>'<div style="font-size:10px;color:var(--clear)">→ '+x+'</div>').join('');
+    return '<div style="background:#0E141b;border:1px solid #1b232c;border-left:3px solid '+c+';border-radius:8px;padding:9px 11px">'
+      +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">'
+        +'<div><span style="font-size:14px">'+ic+'</span> <b style="color:var(--ink)">'+d.kind+'</b> <span style="color:'+c+';font-size:10px;text-transform:uppercase">'+d.severity+'</span></div>'
+        +'<div style="color:var(--dimmer);font-size:10px">'+(d.method||'')+' · '+(d.confidence||0)+'%</div></div>'
+      +(d.capturingnow?'<div style="color:'+c+';font-size:10.5px;margin-top:2px">● '+d.capturingnow+'</div>':'')
+      +(d.surveilling?'<div style="color:var(--dim);font-size:10.5px">Watching: '+d.surveilling+'</div>':'')
+      +'<div style="color:var(--dimmer);font-size:10px">'+(d.behaviortxt||'')+' · '+(typeof distShort==='function'?distShort(d):'')+'</div>'
+      +(counters?'<div style="margin-top:4px">'+counters+'</div>':'')
+      +'<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">'
+        +'<button onclick="watchLocate(\''+d.id+'\')" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:4px;padding:2px 9px;cursor:pointer;font-family:inherit;font-size:10px">📍 LOCATE</button>'
+        +'<button onclick="watchOpen(\''+d.id+'\')" style="background:#11171e;color:var(--dim);border:1px solid #25303a;border-radius:4px;padding:2px 9px;cursor:pointer;font-family:inherit;font-size:10px">⊕ DETAILS</button>'
+        +'<button onclick="watchLog(\''+d.id+'\')" style="background:#11171e;color:var(--amber);border:1px solid #5a4416;border-radius:4px;padding:2px 9px;cursor:pointer;font-family:inherit;font-size:10px">🧾 LOG EVIDENCE</button>'
+      +'</div></div>';
+  }).join('');
 }
-function tdSnapshot(){ if(window._tdLastKb){ _tdHidSnap=window._tdLastKb.map(d=>d.id); const el=$('tdHid'); if(el) el.innerHTML+='<div style="color:var(--cyan)">📸 Snapshot set ('+_tdHidSnap.length+' keyboard(s)). A new one later will be flagged.</div>'; } else tdHidRun(); }
-const TD_HARDEN=[
-  'Rolling-code remotes (car/garage): a Flipper can record &amp; replay FIXED codes — make sure yours uses ROLLING code (KeeLoq/HCS), and don’t press the fob near strangers.',
-  'RFID/NFC: low-frequency (125 kHz) badges clone trivially — upgrade to 13.56 MHz with crypto (DESFire). Keep cards in an RF-blocking sleeve.',
-  'BadUSB: never plug in found/unknown USB sticks; lock your screen when away; consider USB-control settings that block new HID devices.',
-  'Car key relay: keep keys in a Faraday pouch — relay attacks extend your key’s range to unlock/start the car.',
-  'If you see persistent fob-band bursts you can’t explain, treat the area as compromised and move; this is detection, not proof.'];
-function startThreats(){
-  const hb=$('tdHidBtn'); if(hb&&!hb._w){ hb._w=1; hb.onclick=tdHidRun; }
-  const sb=$('tdHidSnap'); if(sb&&!sb._w){ sb._w=1; sb.onclick=tdSnapshot; }
-  const hd=$('tdHarden'); if(hd) hd.innerHTML='• '+TD_HARDEN.join('<br>• ');
-  tdScan(); tdHidRun();
-  if(_tdTimer) clearInterval(_tdTimer);
-  _tdTimer=setInterval(tdScan,2500);
-}
-function stopThreats(){ if(_tdTimer){ clearInterval(_tdTimer); _tdTimer=null; } }
+function startWatchers(){ watchRender(); if(_watchTimer) clearInterval(_watchTimer); _watchTimer=setInterval(watchRender,2000); }
+function stopWatchers(){ if(_watchTimer){ clearInterval(_watchTimer); _watchTimer=null; } }
 
-// ================= ATTACK-SURFACE DEFENSE (anti automated-pentest) ============
-function asView(){
-  const el=$('asView'); if(!el) return;
-  const f=(typeof netGatherFindings==='function')?netGatherFindings():[];
-  if(!f.length){ el.innerHTML='No exposure data yet. Click EXPOSURE CHECK, or run a scan in the Network tab — then an attacker’s-priority view shows here.'; return; }
-  let h='<div style="color:var(--dim)">What an automated tool would target first on your network (by severity):</div>';
-  f.slice(0,12).forEach((a,i)=>{ const c=RSKCOL[a.sev]||'#888';
-    h+='<div style="font-size:10.5px;margin-top:2px"><b style="color:'+c+'">'+(i+1)+'. '+a.sev.toUpperCase()+'</b> <span style="color:var(--dimmer)">['+a.src+']</span> '+a.what+'</div>'; });
-  h+='<div style="color:var(--clear);font-size:10px;margin-top:5px">Fix from the top down — close these before an automated tool finds them.</div>';
-  el.innerHTML=h;
+// ================= EVIDENCE — follow-test + timestamped log ===================
+function evLoad(){ try{ return JSON.parse(localStorage.getItem('sentry_evidence')||'[]'); }catch(e){ return []; } }
+function evSave(a){ try{ localStorage.setItem('sentry_evidence', JSON.stringify(a.slice(-300))); }catch(e){} }
+function evAdd(d,note){
+  const log=evLoad();
+  log.push({t:new Date().toISOString(), kind:d.kind, category:d.category||'', severity:d.severity||'',
+    capturing:d.capturingnow||'', method:d.method||'', confidence:d.confidence||0,
+    dist:(typeof distShort==='function'?distShort(d):''), note:note||''});
+  evSave(log); evRenderLog();
 }
-function asScan(){
-  const el=$('asView'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Running discovery + quick scan of the gateway… (~25s)</span>';
-  const gw=((netLanDevices()[0]||{}).ip)||'';
-  const base=gw?gw.split('.').slice(0,3).join('.'):'';
-  rfSend({cmd:'net_nmap_scan', target:gw||(base+'.1'), scan_type:'quick'});
+function evRenderLog(){
+  const el=$('evLog'); if(!el) return;
+  const log=evLoad();
+  if(!log.length){ el.innerHTML='<span style="color:var(--dimmer)">No entries yet. In the Watchers tab, tap 🧾 LOG EVIDENCE on a suspect to record it here with a timestamp.</span>'; return; }
+  el.innerHTML='<div style="color:var(--clear)">'+log.length+' entr'+(log.length===1?'y':'ies')+' (saved on this device):</div>'
+    +log.slice().reverse().slice(0,40).map(e=>'<div style="font-size:10px;border-top:1px solid #1b232c;padding:3px 0"><span style="color:var(--dimmer)">'+e.t.replace('T',' ').slice(0,19)+'</span> · <b style="color:var(--ink)">'+e.kind+'</b> '+(e.capturing?'· '+e.capturing:'')+' <span style="color:var(--dimmer)">('+e.confidence+'%'+(e.dist?', '+e.dist:'')+')</span></div>').join('');
 }
-function asIdsRun(){
-  const el=$('asIds'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Watching traffic 8s for scan/probe signatures…</span>';
-  rfSend({cmd:'net_capture_start', seconds:8});
+function evExport(){
+  const log=evLoad(); if(!log.length){ const el=$('evLog'); if(el) el.innerHTML='<span style="color:var(--amber)">Nothing to export yet.</span>'; return; }
+  let csv='SENTRY counter-surveillance evidence log\nexported,'+new Date().toISOString()+'\ntimestamp,device,category,severity,capturing,method,confidence,distance,note\n';
+  log.forEach(e=>csv+=[e.t,'"'+e.kind+'"',e.category,e.severity,'"'+(e.capturing||'').replace(/"/g,"'")+'"',e.method,e.confidence,'"'+(e.dist||'')+'"','"'+(e.note||'').replace(/"/g,"'")+'"'].join(',')+'\n');
+  const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='sentry-evidence-'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); URL.revokeObjectURL(url);
+  const w=window.open('','_blank'); if(w){
+    const rows=log.slice().reverse().map(e=>'<tr><td>'+e.t.replace('T',' ').slice(0,19)+'</td><td>'+e.kind+'</td><td>'+e.category+'</td><td>'+e.capturing+'</td><td>'+e.confidence+'%</td><td>'+(e.dist||'')+'</td></tr>').join('');
+    w.document.write('<html><head><title>SENTRY evidence log</title><style>body{font-family:system-ui;margin:30px;color:#111}h1{font-size:20px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:5px;font-size:12px;text-align:left}small{color:#666}</style></head><body><h1>SENTRY — Counter-Surveillance Evidence Log</h1><small>Exported '+new Date().toISOString()+' · detections recorded by SENTRY sensors</small><table><tr><th>Time</th><th>Device</th><th>Category</th><th>Capturing</th><th>Conf.</th><th>Distance</th></tr>'+rows+'</table><p><small>Signal-based detections from a personal counter-surveillance station; distances are signal-strength estimates. Provided to support a report to authorities.</small></p><script>setTimeout(function(){window.print()},300)<\/script></body></html>'); w.document.close();
+  }
 }
-function asRenderIds(){
-  const el=$('asIds'); if(!el) return;
-  const t=(B._net_last||{}).traffic; if(!t){ return; }
-  const ids=t.ids||[];
-  if(!ids.length){ el.innerHTML='<span style="color:var(--clear)">No scan/probe signatures aimed at you in that window ✓</span> <span style="color:var(--dimmer)">('+t.packets+' packets)</span>'; return; }
-  let h='<div style="color:var(--alert)">🛰 Scan/probe activity detected:</div>';
-  ids.forEach(a=>{ const c=RSKCOL[a.severity]||'#888'; h+='<div style="font-size:10.5px"><b style="color:'+c+'">'+a.severity.toUpperCase()+'</b> '+a.what+' <span style="color:var(--clear)">→ '+a.fix+'</span></div>'; });
-  el.innerHTML=h;
+function evClearLog(){ if(confirm('Clear the evidence log saved on this device?')){ evSave([]); evRenderLog(); } }
+let _evSnap=null;
+function evSnapshot(){
+  _evSnap=watchSuspects().map(d=>({id:d.id,kind:d.kind,category:d.category}));
+  const el=$('evFollow'); if(el) el.innerHTML='<span style="color:var(--cyan)">📸 Snapshot set: '+_evSnap.length+' suspect(s). Now physically MOVE somewhere else for a few minutes, then hit RE-CHECK.</span>';
 }
-function asRefresh(){ const v=document.getElementById('surface'); if(v&&v.classList.contains('on')){ asView(); asRenderIds(); } }
-function startSurface(){
-  const sb=$('asScanBtn'); if(sb&&!sb._w){ sb._w=1; sb.onclick=asScan; }
-  const ib=$('asIdsBtn'); if(ib&&!ib._w){ ib._w=1; ib.onclick=asIdsRun; }
-  asView(); asRenderIds();
+function evRecheck(){
+  const el=$('evFollow'); if(!el) return;
+  if(!_evSnap){ el.innerHTML='<span style="color:var(--amber)">Take a 📸 SNAPSHOT first, then move, then RE-CHECK.</span>'; return; }
+  const now=watchSuspects(), nowIds=new Set(now.map(d=>d.id));
+  const followers=_evSnap.filter(s=>nowIds.has(s.id)||now.some(d=>d.kind===s.kind&&d.category===s.category));
+  if(!followers.length){ el.innerHTML='<span style="color:var(--clear)">✓ None of the earlier suspects are still with you after moving — nothing appears to be following.</span> <span style="color:var(--dimmer)">(re-run a few times to be sure)</span>'; return; }
+  el.innerHTML='<div style="color:var(--alert)">⚠ '+followers.length+' suspect(s) STILL present after you moved — these are traveling with you:</div>'
+    +followers.map(s=>'<div style="font-size:10.5px;color:var(--amber)">• '+s.kind+(s.category?' ('+s.category+')':'')+'</div>').join('')
+    +'<div style="color:var(--clear);font-size:10px;margin-top:4px">Treat these as likely following you: Locate them (Watchers → 📍), check bags/vehicle/clothing, log them as evidence, get to a public place, and consider contacting police.</div>';
+}
+function startEvidence(){
+  const sn=$('evSnapBtn'); if(sn&&!sn._w){ sn._w=1; sn.onclick=evSnapshot; }
+  const rc=$('evRecheckBtn'); if(rc&&!rc._w){ rc._w=1; rc.onclick=evRecheck; }
+  const ex=$('evExportBtn'); if(ex&&!ex._w){ ex._w=1; ex.onclick=evExport; }
+  const cl=$('evClearBtn'); if(cl&&!cl._w){ cl._w=1; cl.onclick=evClearLog; }
+  evRenderLog();
 }
 
 
