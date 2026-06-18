@@ -280,6 +280,17 @@ class Station:
                                  audio=cmd.get("audio"))
             elif c == "rf_sweep":
                 self.rf.set_sweep()
+            elif c == "rf_scan":
+                self.rf.set_scan(band=cmd.get("band"),
+                                 lo_mhz=cmd.get("lo_mhz"),
+                                 hi_mhz=cmd.get("hi_mhz"),
+                                 step_khz=cmd.get("step_khz"),
+                                 demod=cmd.get("demod"),
+                                 squelch_db=cmd.get("squelch_db"))
+            elif c == "rf_scan_skip":
+                self.rf.scan_skip()
+            elif c == "rf_scan_squelch":
+                self.rf.scan_set_squelch(cmd.get("squelch_db", 8.0))
             else:
                 return {"type": "rf_ack", "ok": False, "reason": "unknown cmd"}
         except Exception as e:
@@ -331,6 +342,7 @@ async def _serve(station):
             await ws.send(json.dumps(station.latest))
             last_ts = station.latest["ts"]
             last_rf_n = -1
+            last_scan_n = -1
             last_audio_seq = 0          # this client's own audio cursor (non-draining)
             while True:
                 await asyncio.sleep(0.03)
@@ -338,14 +350,18 @@ async def _serve(station):
                 if station.latest["ts"] != last_ts:
                     await ws.send(json.dumps(station.latest))
                     last_ts = station.latest["ts"]
-                # live tuned spectrum + audio (fast) — only while the SDR is tuned
+                # live tuned spectrum + scanner state + audio (fast)
                 rf = station.rf
                 if rf and rf.status()["online"]:
                     tuned = rf.tuned_state()
                     if tuned and tuned.get("n") != last_rf_n:
                         last_rf_n = tuned["n"]
                         await ws.send(json.dumps({"type": "rf_tuned", "tuned": tuned}))
-                    if tuned and tuned.get("audio"):
+                    scan = rf.scan_state()
+                    if scan and scan.get("n") != last_scan_n:
+                        last_scan_n = scan["n"]
+                        await ws.send(json.dumps({"type": "rf_scan", "scan": scan}))
+                    if rf.audio_active():
                         rate, frames, newest = rf.audio_since(last_audio_seq)
                         last_audio_seq = newest
                         for fr in frames:
