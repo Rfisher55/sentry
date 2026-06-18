@@ -73,3 +73,25 @@ docs/
 - Verify changes actually run (compile + a quick run) before claiming done.
 - Check the rendered UI for stray characters, not just that code parses.
 - Small, confirmed steps over big risky rewrites.
+
+## Frontend Theme
+<always_use_sentry_theme>
+SENTRY uses a tactical-instrument aesthetic. Always:
+- True dark base: near-black background (#0d0d0d / #121212), card surfaces slightly
+  lighter (#1a1a1a / #1e1e1e), elevated elements (#2a2a2a).
+- High contrast text: near-white primary (#f0f0f0), light-grey secondary (#a0a0a0).
+  Every text element must be easily readable (aim WCAG AA).
+- Typography: crisp MONOSPACE for data/numbers/readouts (JetBrains Mono / IBM Plex
+  Mono / Roboto Mono); clean SANS-SERIF for labels/headings (Inter / Roboto). NO
+  decorative, rounded, bubble, or cartoon fonts. Larger default sizes; clear
+  size/weight hierarchy; generous line spacing.
+- Disciplined accent palette, ALWAYS paired with a text label or icon (never color
+  alone): amber #ffb000 = active/warning/highlight; red #ff3b3b = alert/critical;
+  green #33d17a = safe/clear/online; cyan #00d3f2 = interactive/selected.
+- Consistent panels on an 8px spacing grid; subtle corner radius (not bubbly); same
+  padding/rhythm everywhere; aligned to a grid (no floating elements).
+- Status = colored dot/badge + TEXT label, never color alone.
+- Put colors/fonts/spacing in CSS variables / design tokens at the top.
+- NO decorative gradients, NO glassmorphism/blur that cuts contrast, NO drop-shadow
+  soup, NO emoji-as-UI, NO childish styling, NO generic "AI slop" sameness.
+</always_use_sentry_theme>

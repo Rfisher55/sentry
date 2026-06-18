@@ -4,17 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SENTRY Station</title>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Spline+Sans+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --slate:#0F1216;--slate2:#161A20;--slate3:#1E242C;--slate4:#272F39;
-    --line:#2A323C;--ink:#E8ECF1;--dim:#7A838F;--dimmer:#49515B;
-    --amber:#F2A93B;--clear:#3FB984;--notable:#8FA3B8;--suspect:#F2A93B;--alert:#E5564B;--cyan:#48C9E0;
+    /* SENTRY tactical-instrument theme — true-dark, high-contrast (see CLAUDE.md) */
+    --slate:#0d0d0d;--slate2:#1a1a1a;--slate3:#1e1e1e;--slate4:#2a2a2a;
+    --line:#333333;--ink:#f0f0f0;--dim:#a0a0a0;--dimmer:#808080;
+    --amber:#ffb000;--clear:#33d17a;--notable:#8FA3B8;--suspect:#ffb000;--alert:#ff3b3b;--cyan:#00d3f2;
+    /* 8px spacing grid */
+    --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{height:100%;background:var(--slate);overflow:hidden}
-  body{font-family:'Archivo',system-ui,sans-serif;color:var(--ink);display:flex;flex-direction:column;height:100vh}
-  .mono{font-family:'Spline Sans Mono',monospace;font-variant-numeric:tabular-nums}
+  body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);display:flex;flex-direction:column;height:100vh}
+  .mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}
   button{font-family:inherit}
 
   /* title bar */
@@ -23,10 +27,10 @@
   .tabs{display:flex;gap:3px;margin-left:6px}
   .tab{font-size:11px;letter-spacing:.1em;font-weight:700;color:var(--dim);background:none;border:none;padding:7px 13px;border-radius:6px;cursor:pointer;text-transform:uppercase}
   .tab.on{background:var(--slate4);color:var(--ink)}
-  .status{margin-left:auto;display:flex;gap:14px;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim);align-items:center}
+  .status{margin-left:auto;display:flex;gap:14px;font-family:'JetBrains Mono';font-size:11px;color:var(--dim);align-items:center}
   .status b{color:var(--clear)}
   .alertcount{color:var(--alert)!important;font-weight:700}
-  .rescan{font-family:'Spline Sans Mono';font-size:11px;letter-spacing:.08em;background:var(--amber);color:#1a1205;border:none;padding:7px 13px;border-radius:5px;font-weight:700;cursor:pointer}
+  .rescan{font-family:'JetBrains Mono';font-size:11px;letter-spacing:.08em;background:var(--amber);color:#1a1205;border:none;padding:7px 13px;border-radius:5px;font-weight:700;cursor:pointer}
 
   .view{flex:1;overflow:hidden;display:none}.view.on{display:flex}
 
@@ -49,17 +53,17 @@
   .dev .sd{width:8px;height:8px;border-radius:50%;flex:none}
   .dev.alert .sd{background:var(--alert);box-shadow:0 0 6px var(--alert)}.dev.suspect .sd{background:var(--suspect)}.dev.notable .sd{background:var(--notable)}
   .dev .dk{font-size:13px;font-weight:700}.dev .dm{font-size:10px;color:var(--dim);margin-top:1px}
-  .dev .chip{font-family:'Spline Sans Mono';font-size:8px;letter-spacing:.06em;padding:2px 6px;border-radius:3px;background:var(--slate4);color:var(--dim);text-transform:uppercase}
-  .dev .br{margin-left:auto;font-family:'Spline Sans Mono';font-size:11px;color:var(--cyan)}
+  .dev .chip{font-family:'JetBrains Mono';font-size:8px;letter-spacing:.06em;padding:2px 6px;border-radius:3px;background:var(--slate4);color:var(--dim);text-transform:uppercase}
+  .dev .br{margin-left:auto;font-family:'JetBrains Mono';font-size:11px;color:var(--cyan)}
 
   /* device detail drawer (scan tab) */
   .drawer{flex:none;max-height:0;overflow:hidden;background:var(--slate2);border-top:1px solid var(--line);transition:max-height .2s}
   .drawer.open{max-height:62%;overflow-y:auto}
   .dh{padding:13px 16px 10px;border-bottom:1px solid var(--line);position:relative}
-  .dh .x{position:absolute;top:11px;right:13px;font-family:'Spline Sans Mono';font-size:10px;background:var(--slate4);color:var(--dim);border:1px solid var(--line);padding:5px 9px;border-radius:5px;cursor:pointer}
+  .dh .x{position:absolute;top:11px;right:13px;font-family:'JetBrains Mono';font-size:10px;background:var(--slate4);color:var(--dim);border:1px solid var(--line);padding:5px 9px;border-radius:5px;cursor:pointer}
   .dh .x:hover{background:var(--alert);color:#fff;border-color:var(--alert)}
   .dkind{font-size:17px;font-weight:800;padding-right:60px}
-  .dconf{display:inline-flex;align-items:center;gap:7px;margin-top:6px;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)}
+  .dconf{display:inline-flex;align-items:center;gap:7px;margin-top:6px;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)}
   .cbar{width:74px;height:5px;background:var(--slate4);border-radius:3px;overflow:hidden}.cf{height:100%;background:var(--amber)}
   .sec{padding:5px 16px 11px}
   .st{font-size:10px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin:11px 0 6px}
@@ -68,9 +72,9 @@
   .kv{display:flex;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}.kv .k{color:var(--dim);width:96px;flex:none;font-size:11px}.kv .v{flex:1}
   .step{font-size:12px;padding:5px 0 5px 18px;position:relative;line-height:1.45;border-bottom:1px solid var(--line)}.step::before{content:"\\2192";position:absolute;left:0;color:var(--clear);font-weight:700}
   .invrow{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-  .inv{font-family:'Spline Sans Mono';font-size:10px;letter-spacing:.03em;background:var(--slate4);color:var(--cyan);border:1px solid var(--line);padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700}
+  .inv{font-family:'JetBrains Mono';font-size:10px;letter-spacing:.03em;background:var(--slate4);color:var(--cyan);border:1px solid var(--line);padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:700}
   .inv:hover{border-color:var(--cyan)}
-  .locate{width:100%;margin:8px 0 2px;background:var(--cyan);color:#06222a;border:none;padding:10px;border-radius:7px;font-family:'Spline Sans Mono';font-size:12px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+  .locate{width:100%;margin:8px 0 2px;background:var(--cyan);color:#06222a;border:none;padding:10px;border-radius:7px;font-family:'JetBrains Mono';font-size:12px;font-weight:700;letter-spacing:.06em;cursor:pointer}
 
   /* ===== TOOLS GRID ===== */
   #tools{flex-direction:column;overflow-y:auto;padding:16px;align-items:center}
@@ -79,9 +83,9 @@
   .card:hover{border-color:var(--cyan)}
   .card h3{font-size:14px;font-weight:800;display:flex;align-items:center;gap:8px}
   .card .ic{width:8px;height:8px;border-radius:2px;background:var(--cyan);flex:none}
-  .card .cc{margin-left:auto;font-family:'Spline Sans Mono';font-size:9px;color:var(--dim);background:var(--slate4);padding:2px 6px;border-radius:3px}
+  .card .cc{margin-left:auto;font-family:'JetBrains Mono';font-size:9px;color:var(--dim);background:var(--slate4);padding:2px 6px;border-radius:3px}
   .card p{font-size:11.5px;color:var(--dim);line-height:1.45;margin-top:7px}
-  .card .open{margin-top:9px;font-family:'Spline Sans Mono';font-size:10px;color:var(--cyan);letter-spacing:.05em}
+  .card .open{margin-top:9px;font-family:'JetBrains Mono';font-size:10px;color:var(--cyan);letter-spacing:.05em}
   .gridhd{max-width:1000px;width:100%;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);font-weight:700;margin:2px 2px 11px}
 
   /* ===== CHANNELS ===== */
@@ -92,8 +96,8 @@
   .chcard .top{display:flex;align-items:center;gap:9px}
   .chcard .dot{width:9px;height:9px;border-radius:50%;flex:none}
   .chcard h3{font-size:14px;font-weight:800}
-  .chcard .band{margin-left:auto;font-family:'Spline Sans Mono';font-size:9px;color:var(--dim)}
-  .chcard .cnt{font-family:'Spline Sans Mono';font-size:11px;margin-top:6px}
+  .chcard .band{margin-left:auto;font-family:'JetBrains Mono';font-size:9px;color:var(--dim)}
+  .chcard .cnt{font-family:'JetBrains Mono';font-size:11px;margin-top:6px}
   .chcard p{font-size:11.5px;color:var(--dim);line-height:1.45;margin-top:6px}
   .chcard .hw{font-size:10px;color:var(--dimmer);margin-top:7px;border-top:1px solid var(--line);padding-top:7px}
 
@@ -102,7 +106,7 @@
   .overlay.on{display:flex}
   .oh{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);background:var(--slate2);flex:none}
   .oh h2{font-size:15px;font-weight:800}
-  .ox{margin-left:auto;font-family:'Spline Sans Mono';font-size:12px;letter-spacing:.06em;background:var(--slate4);color:var(--ink);border:1px solid var(--line);padding:8px 15px;border-radius:6px;cursor:pointer;font-weight:700}
+  .ox{margin-left:auto;font-family:'JetBrains Mono';font-size:12px;letter-spacing:.06em;background:var(--slate4);color:var(--ink);border:1px solid var(--line);padding:8px 15px;border-radius:6px;cursor:pointer;font-weight:700}
   .ox:hover{background:var(--alert);color:#fff;border-color:var(--alert)}
   .obody{flex:1;overflow:hidden;display:flex;min-height:0}
 
@@ -113,8 +117,8 @@
   .trow{display:flex;align-items:center;gap:9px;padding:10px 11px;background:var(--slate3);border-radius:7px;cursor:pointer;border:1px solid transparent}
   .trow:hover{border-color:var(--line)}.trow.sel{border-color:var(--cyan);background:var(--slate4)}
   .trow .td{width:8px;height:8px;border-radius:50%;flex:none}
-  .trow .tk{font-size:13px;font-weight:700}.trow .ts{font-size:10px;color:var(--dim);margin-top:1px;font-family:'Spline Sans Mono'}
-  .trow .tb{margin-left:auto;font-family:'Spline Sans Mono';font-size:11px;color:var(--cyan)}
+  .trow .tk{font-size:13px;font-weight:700}.trow .ts{font-size:10px;color:var(--dim);margin-top:1px;font-family:'JetBrains Mono'}
+  .trow .tb{margin-left:auto;font-family:'JetBrains Mono';font-size:11px;color:var(--cyan)}
   .ablk{background:var(--slate3);border-radius:8px;padding:12px}
   .ablk .ah{font-size:14px;font-weight:800;margin-bottom:5px}
   .ablk .am{font-size:12.5px;line-height:1.5;color:var(--ink)}
@@ -126,7 +130,7 @@
   .sigleft{width:55%;border-right:1px solid var(--line);overflow:hidden;padding:16px;display:flex;flex-direction:column;min-width:0;background:#0B0E12}
   #sigCanvas{flex:1;width:100%;min-height:0;border-radius:8px;background:#0B0E12}
   .sigright{width:45%;overflow-y:auto;padding:16px;background:var(--slate2);min-width:0}
-  .feedline{font-family:'Spline Sans Mono';font-size:12px;line-height:1.6;padding:5px 0;border-bottom:1px solid var(--line);opacity:0;animation:fadein .3s forwards}
+  .feedline{font-family:'JetBrains Mono';font-size:12px;line-height:1.6;padding:5px 0;border-bottom:1px solid var(--line);opacity:0;animation:fadein .3s forwards}
   .feedline .tag{color:var(--dim)}
   .feedline.read{color:var(--cyan)}
   .feedline.concl{color:var(--ink)} .feedline.concl b{color:var(--amber)}
@@ -146,19 +150,19 @@
   /* ---- instrument control bar (Scan view) ---- */
   .ctrlbar{background:#0b0f14;border:1px solid var(--line);border-bottom:2px solid #11161c;padding:8px 12px;display:flex;flex-direction:column;gap:7px}
   .ctrlrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .ctrllbl{font-family:'Spline Sans Mono';font-size:9.5px;letter-spacing:.1em;color:var(--dim);min-width:96px}
-  .ctrlval{font-family:'Spline Sans Mono';font-size:11px;color:var(--cyan);min-width:64px;text-align:right}
-  .ibtn{font-family:'Spline Sans Mono';font-size:10px;letter-spacing:.06em;font-weight:700;background:#11171e;color:var(--ink);border:1px solid var(--line);padding:6px 10px;border-radius:4px;cursor:pointer}
+  .ctrllbl{font-family:'JetBrains Mono';font-size:9.5px;letter-spacing:.1em;color:var(--dim);min-width:96px}
+  .ctrlval{font-family:'JetBrains Mono';font-size:11px;color:var(--cyan);min-width:64px;text-align:right}
+  .ibtn{font-family:'JetBrains Mono';font-size:10px;letter-spacing:.06em;font-weight:700;background:#11171e;color:var(--ink);border:1px solid var(--line);padding:6px 10px;border-radius:4px;cursor:pointer}
   .ibtn:hover{border-color:var(--cyan);color:var(--cyan)}
   .ibtn.armed{background:var(--cyan);color:#06222a;border-color:var(--cyan)}
-  .chiptog{font-family:'Spline Sans Mono';font-size:10px;font-weight:700;background:#11171e;color:var(--dim);border:1px solid var(--line);padding:5px 9px;border-radius:4px;cursor:pointer}
+  .chiptog{font-family:'JetBrains Mono';font-size:10px;font-weight:700;background:#11171e;color:var(--dim);border:1px solid var(--line);padding:5px 9px;border-radius:4px;cursor:pointer}
   .chiptog.on{background:#13242b;color:var(--cyan);border-color:var(--cyan)}
   #threshSlider{flex:1;min-width:120px;accent-color:var(--cyan)}
   .sigbar{display:inline-flex;gap:2px;align-items:flex-end;margin-left:auto;height:13px}
   .sigseg{width:4px;border-radius:1px;background:#222a33}
   .dev .br{margin-left:8px}
   /* LIVE vs DEMO/OFFLINE banner — hidden when live, loud when not */
-  #connBanner{flex:none;display:none;text-align:center;font-family:'Spline Sans Mono';
+  #connBanner{flex:none;display:none;text-align:center;font-family:'JetBrains Mono';
     font-size:12px;font-weight:700;letter-spacing:.04em;padding:8px 12px;line-height:1.4}
   #connBanner.show{display:block}
   #connBanner.demo{background:#3a1512;color:#ff9a8f;border-bottom:1px solid #5a1f1a}
@@ -301,12 +305,12 @@
   <div class="view" id="radio">
     <div style="display:flex;flex-direction:column;gap:9px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
       <div class="gridhd">Radio · sweep the bands, watch the live spectrum, and listen — RTL-SDR, analog only</div>
-      <div id="radioOffline" style="display:none;color:var(--alert);font-family:'Spline Sans Mono';font-size:12px">○ RTL-SDR not detected — plug in the dongle (and close any other SDR app using it) to use the radio.</div>
+      <div id="radioOffline" style="display:none;color:var(--alert);font-family:'JetBrains Mono';font-size:12px">○ RTL-SDR not detected — plug in the dongle (and close any other SDR app using it) to use the radio.</div>
       <div id="radioWrap" style="display:flex;flex-direction:column;gap:9px">
         <!-- CHANNELS: flip through real channel plans like a car radio / scanner -->
         <div id="radioChanBands" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
         <!-- flip / seek controls -->
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
           <button id="radioPrev" style="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">◀ PREV</button>
           <button id="radioNext" style="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">NEXT ▶</button>
           <button id="radioAuto" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">⟳ AUTO-SEEK</button>
@@ -317,7 +321,7 @@
           <button id="radioStop" style="background:#2a1416;color:var(--alert);border:1px solid var(--alert);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px;margin-left:auto">■ STOP / RELEASE</button>
         </div>
         <!-- SWEEP: raw frequency stepping (find signals off the known channels) + manual tune -->
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
           <span style="color:var(--amber);font-weight:600">SWEEP</span>
           <span id="radioBands" style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
           <span style="color:var(--cyan);font-weight:600;margin-left:auto">TUNE</span>
@@ -333,8 +337,8 @@
           <span id="radioModeHint" style="color:var(--dimmer);font-size:10px"></span>
         </div>
         <canvas id="radioCanvas" width="640" height="300" style="width:100%;border-radius:8px;background:#0B0E12"></canvas>
-        <div id="radioStatus" style="font-family:'Spline Sans Mono';font-size:12px;color:var(--ink);min-height:16px"></div>
-        <div id="radioLog" style="font-family:'Spline Sans Mono';font-size:10.5px;color:var(--dimmer);line-height:1.5"></div>
+        <div id="radioStatus" style="font-family:'JetBrains Mono';font-size:12px;color:var(--ink);min-height:16px"></div>
+        <div id="radioLog" style="font-family:'JetBrains Mono';font-size:10.5px;color:var(--dimmer);line-height:1.5"></div>
         <div style="font-size:10px;color:var(--dimmer);line-height:1.4">Honest limits: receives ANALOG, unencrypted signals only, ~25 MHz–1.75 GHz. It cannot reach 2.4/5 GHz (Wi-Fi/Bluetooth audio, drones — needs a HackRF), cannot decode encrypted or digital (DMR/P25), and never tunes cellular. The dongle is single-app — STOP releases it back to the surveillance sweep.</div>
       </div>
     </div>
@@ -344,10 +348,10 @@
   <div class="view" id="network">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
       <div class="gridhd">Network Inspector &amp; Security Assessment Toolkit</div>
-      <div style="font-family:'Spline Sans Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
+      <div style="font-family:'JetBrains Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
         ⚠ <b>AUTHORIZATION:</b> These tools (nmap, tshark, port/web scans, IDS) are for networks &amp; devices you OWN or are explicitly AUTHORIZED to test. They do recon, assessment, detection &amp; hardening guidance only — no exploitation, no break-in, no credential cracking, no capturing other people's content. Scanning others is illegal.
       </div>
-      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px">
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-family:'JetBrains Mono';font-size:11px">
         <span style="color:var(--cyan);font-weight:600">WORKFLOW</span>
         <button id="netAlertsBtn" style="background:#13242b;color:var(--amber);border:1px solid #5a4416;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">🔔 ALERTS CENTER</button>
         <button id="netReportBtn" style="background:#13242b;color:var(--clear);border:1px solid #244a3a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">📋 REPORT (CSV / print)</button>
@@ -355,12 +359,12 @@
         <button id="netDiffBtn" style="background:#13242b;color:var(--cyan);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">🔀 COMPARE</button>
         <button id="netExplainBtn" style="background:#13242b;color:var(--dim);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">📖 EXPLAIN</button>
       </div>
-      <div id="netWorkflow" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)"></div>
-      <div id="netCapture" style="font-family:'Spline Sans Mono';font-size:11px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px;color:var(--dim)"></div>
+      <div id="netWorkflow" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dimmer)"></div>
+      <div id="netCapture" style="font-family:'JetBrains Mono';font-size:11px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px;color:var(--dim)"></div>
       <!-- ADVANCED SCAN (nmap) -->
       <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px 11px">
-        <div id="netNmapStatus" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim);margin-bottom:7px">Checking nmap…</div>
-        <div id="netNmapControls" style="display:none;flex-wrap:wrap;gap:7px;align-items:center;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+        <div id="netNmapStatus" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dim);margin-bottom:7px">Checking nmap…</div>
+        <div id="netNmapControls" style="display:none;flex-wrap:wrap;gap:7px;align-items:center;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
           <span style="color:var(--cyan);font-weight:600">TARGET</span>
           <input id="netNmapTarget" type="text" placeholder="192.168.1.1 or 192.168.1.0/24" style="width:185px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 7px;font-family:inherit;font-size:11px">
           <select id="netNmapType" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 6px;font-family:inherit;font-size:11px">
@@ -375,18 +379,18 @@
           <button id="netNmapBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">▶ RUN NMAP</button>
           <span id="netNmapWhat" style="color:var(--dimmer);font-size:10px;width:100%"></span>
         </div>
-        <div id="netNmapResult" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:8px"></div>
+        <div id="netNmapResult" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dimmer);margin-top:8px"></div>
       </div>
       <!-- DETECTION: ARP/MITM + IDS -->
       <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px">
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
           <span style="color:var(--cyan);font-weight:600">DETECTION</span>
           <button id="netArpBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">⚠ ARP / MITM CHECK</button>
           <span style="color:var(--dimmer);font-size:10px">Flags ARP-spoofing / rogue-gateway (one MAC claiming many IPs). Port-scan &amp; high-fanout anomaly IDS run automatically during a live traffic CAPTURE (above).</span>
         </div>
-        <div id="netArpResult" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
+        <div id="netArpResult" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
         <span style="color:var(--cyan);font-weight:600">SCAN AN IP</span>
         <input id="netIp" type="text" placeholder="192.168.1.1" style="width:130px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 7px;font-family:inherit;font-size:11px">
         <button id="netScanBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">▶ SCAN PORTS</button>
@@ -399,12 +403,12 @@
         </div>
         <div style="flex:1.4;min-width:300px">
           <div class="sidehd" style="color:var(--amber);margin-bottom:6px">✦ Security report</div>
-          <div id="netReport" style="font-family:'Spline Sans Mono';font-size:11.5px;color:var(--dimmer)">Select a device (or type an IP) and SCAN PORTS to see its open services, what it exposes in the clear, and how to fix risks.</div>
+          <div id="netReport" style="font-family:'JetBrains Mono';font-size:11.5px;color:var(--dimmer)">Select a device (or type an IP) and SCAN PORTS to see its open services, what it exposes in the clear, and how to fix risks.</div>
         </div>
       </div>
       <div id="netTrafficWrap" style="display:none;margin-top:4px">
         <div class="sidehd" style="color:var(--cyan);margin-bottom:6px">◉ Live traffic (metadata only — never message content)</div>
-        <div id="netTraffic" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)"></div>
+        <div id="netTraffic" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dimmer)"></div>
       </div>
     </div>
   </div>
@@ -413,10 +417,10 @@
   <div class="view" id="threats">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
       <div class="gridhd">Who's Watching You — counter-surveillance command center</div>
-      <div style="font-family:'Spline Sans Mono';font-size:11px;background:#11202a;border:1px solid #1e3a44;border-radius:8px;padding:8px 11px;color:var(--cyan)">
+      <div style="font-family:'JetBrains Mono';font-size:11px;background:#11202a;border:1px solid #1e3a44;border-radius:8px;padding:8px 11px;color:var(--cyan)">
         🕵 Every device SENTRY flags as <b>watching, listening to, or tracking you</b> — ranked by threat, with what it can capture and what to do. <b>Detect &amp; locate only:</b> find it, then <b>remove it from your own space or report it</b> — SENTRY never jams, hacks, or attacks (that's illegal and escalates risk).
       </div>
-      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
         <span id="watchCount" style="color:var(--clear);font-weight:600">Scanning…</span>
         <span style="color:var(--dimmer)">·</span>
         <span style="color:var(--dimmer);font-size:10px">Live from RF + Wi-Fi + Bluetooth + network sensors. Tap a suspect to open it; use Locate to home in by signal.</span>
@@ -429,27 +433,27 @@
   <div class="view" id="surface">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
       <div class="gridhd">Follow-Test &amp; Evidence Log</div>
-      <div style="font-family:'Spline Sans Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
+      <div style="font-family:'JetBrains Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
         🧾 The safe, legal way to "stop" a stalker is <b>detect → locate → remove from your own space → document → report.</b> This builds a timestamped record you can hand to police or use for a protective order. <b>Don't attack their gear</b> — it's illegal and tips them off.
       </div>
       <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
         <div class="sidehd" style="color:var(--clear);margin-bottom:5px">🎯 Am I being followed? (move-and-recheck test)</div>
         <div style="color:var(--dim);font-size:10.5px;margin-bottom:7px">A device near you only proves it's nearby — not that it's following. To tell: <b>1)</b> SNAPSHOT the suspects here, <b>2)</b> physically move to a different place (walk/drive a few minutes), <b>3)</b> RE-CHECK. Anything still with you after you moved is <b>traveling with you</b> — that's the real "following" signal.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button id="evSnapBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">📸 SNAPSHOT SUSPECTS</button>
-          <button id="evRecheckBtn" style="background:#13242b;color:var(--amber);border:1px solid #5a4416;border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">🔀 RE-CHECK (after moving)</button>
+          <button id="evSnapBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px">📸 SNAPSHOT SUSPECTS</button>
+          <button id="evRecheckBtn" style="background:#13242b;color:var(--amber);border:1px solid #5a4416;border-radius:5px;padding:4px 11px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px">🔀 RE-CHECK (after moving)</button>
         </div>
-        <div id="evFollow" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
+        <div id="evFollow" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
       </div>
       <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <div class="sidehd" style="color:var(--clear)">🧾 Evidence log</div>
-          <button id="evExportBtn" style="background:#13242b;color:var(--clear);border:1px solid #244a3a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">📋 EXPORT (CSV / print)</button>
-          <button id="evClearBtn" style="background:#13242b;color:var(--dimmer);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">🗑 CLEAR</button>
+          <button id="evExportBtn" style="background:#13242b;color:var(--clear);border:1px solid #244a3a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px">📋 EXPORT (CSV / print)</button>
+          <button id="evClearBtn" style="background:#13242b;color:var(--dimmer);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px">🗑 CLEAR</button>
         </div>
-        <div id="evLog" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
+        <div id="evLog" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
       </div>
-      <div style="font-family:'Spline Sans Mono';font-size:10px;color:var(--dimmer);line-height:1.5;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px">
+      <div style="font-family:'JetBrains Mono';font-size:10px;color:var(--dimmer);line-height:1.5;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px">
         <b style="color:var(--clear)">If you think you're being followed right now:</b> get to a public place, don't go home, tell someone where you are, and consider calling local police — a planted tracker or being followed is something they can act on. Remove a tracker from <b>your own</b> property (e.g. take out its battery) and keep it as evidence; don't tamper with devices that aren't yours — photograph them in place and report instead.
       </div>
     </div>
@@ -464,7 +468,7 @@
   <!-- LOCATE OVERLAY -->
   <div class="overlay" id="locOverlay">
     <div class="oh"><h2 id="locTitle">Locate</h2>
-      <span id="locSub" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)"></span>
+      <span id="locSub" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dim)"></span>
       <button class="ox" id="locTone" style="margin-left:auto">🔇 TONE OFF</button>
       <button class="ox" id="locExit">✕ EXIT</button></div>
     <div class="obody">
@@ -483,27 +487,27 @@
   <!-- LIVE SIGNAL OVERLAY -->
   <div class="overlay" id="sigOverlay">
     <div class="oh"><h2 id="sigTitle">Live Signal</h2>
-      <span id="sigSub" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)"></span>
+      <span id="sigSub" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dim)"></span>
       <button class="ox" id="sigExit">✕ EXIT</button></div>
     <div class="obody">
       <div class="sigleft">
         <div class="sidehd" style="color:var(--cyan);margin-bottom:8px">◉ LIVE SIGNAL — what the antenna is receiving</div>
         <!-- SDR#-style tuner controls — shown only for the RF view with a live dongle -->
-        <div id="rfControls" style="display:none;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+        <div id="rfControls" style="display:none;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
           <span style="color:var(--cyan);font-weight:600">TUNE</span>
-          <input id="rfFreq" type="number" step="0.1" min="25" max="1750" style="width:84px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'Spline Sans Mono';font-size:11px">
+          <input id="rfFreq" type="number" step="0.1" min="25" max="1750" style="width:84px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'JetBrains Mono';font-size:11px">
           <span>MHz</span>
-          <button id="rfFreqGo" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:3px 9px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">Set</button>
+          <button id="rfFreqGo" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:3px 9px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px">Set</button>
           <span style="color:var(--cyan);font-weight:600;margin-left:6px">SPAN</span>
-          <select id="rfSpan" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'Spline Sans Mono';font-size:11px"></select>
+          <select id="rfSpan" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'JetBrains Mono';font-size:11px"></select>
           <span id="rfNudge" style="display:inline-flex;gap:4px;margin-left:4px"></span>
           <span style="color:var(--cyan);font-weight:600;margin-left:6px">LISTEN</span>
-          <select id="rfDemod" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'Spline Sans Mono';font-size:11px">
+          <select id="rfDemod" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:'JetBrains Mono';font-size:11px">
             <option value="WFM">WFM (broadcast FM)</option>
             <option value="AM">AM</option>
             <option value="NFM">NFM (narrowband)</option>
           </select>
-          <button id="rfListen" style="background:#13242b;color:var(--clear);border:1px solid var(--clear);border-radius:5px;padding:3px 11px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px">▶ LISTEN</button>
+          <button id="rfListen" style="background:#13242b;color:var(--clear);border:1px solid var(--clear);border-radius:5px;padding:3px 11px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px">▶ LISTEN</button>
           <span id="rfHint" style="color:var(--dimmer);width:100%;font-size:10px">Real FFT + live audio from the dongle. Only one tuner — this pauses the surveillance sweep until you exit. Open analog only (WFM/AM/NFM): it can't decode encrypted/digital or tune cellular voice.</span>
         </div>
         <canvas id="sigCanvas" width="640" height="420"></canvas>
@@ -815,7 +819,7 @@ function drawRadar(){
   // concentric DISTANCE rings (proximity only) + range labels
   g.strokeStyle='#1E242C';g.lineWidth=2;
   for(let i=1;i<=3;i++){g.beginPath();g.arc(cx,cy,R*i/3,0,7);g.stroke();}
-  g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
+  g.fillStyle='#5A6470';g.font='11px JetBrains Mono';
   for(let i=1;i<=3;i++)g.fillText('≈'+(maxRange*i/3).toFixed(1)+'m',cx+4,cy-R*i/3+14);
   // outer dashed ring = LAN devices (found by IP, no RF range)
   g.strokeStyle='#22303a';g.setLineDash([3,4]);g.beginPath();g.arc(cx,cy,R*0.99,0,7);g.stroke();g.setLineDash([]);
@@ -823,7 +827,7 @@ function drawRadar(){
   // center (you)
   g.fillStyle='#3FB984';g.beginPath();g.arc(cx,cy,7,0,7);g.fill();
   g.strokeStyle='rgba(63,185,132,.3)';g.lineWidth=2;g.beginPath();g.arc(cx,cy,12,0,7);g.stroke();
-  g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';g.textAlign='center';g.fillText('YOU · distance only',cx,cy+26);g.textAlign='left';
+  g.fillStyle='#5A6470';g.font='10px JetBrains Mono';g.textAlign='center';g.fillText('YOU · distance only',cx,cy+26);g.textAlign='left';
   const devs=B.devices, N=Math.max(1,devs.length);
   devs.forEach((d,i)=>{
     const lan=(d.rssi==null);                          // no RF range → outer ring
@@ -937,7 +941,7 @@ function toolStatus(id){
   return TOOL_STATUS[id]||'planned';
 }
 function statusBadge(st){ const b=STATUS_BADGE[st]||STATUS_BADGE.planned;
-  return '<span style="font-family:Spline Sans Mono;font-size:8.5px;font-weight:700;letter-spacing:.05em;padding:2px 6px;border-radius:3px;color:'+b.c+';background:'+b.bg+';border:1px solid '+b.c+'66">'+b.t+'</span>'; }
+  return '<span style="font-family:JetBrains Mono;font-size:8.5px;font-weight:700;letter-spacing:.05em;padding:2px 6px;border-radius:3px;color:'+b.c+';background:'+b.bg+';border:1px solid '+b.c+'66">'+b.t+'</span>'; }
 function statusBanner(st){ if(st==='live') return ''; const b=STATUS_BADGE[st];
   return '<div style="background:'+b.bg+';border:1px solid '+b.c+'66;color:'+b.c+';padding:9px 11px;border-radius:7px;font-size:11.5px;line-height:1.45;margin-bottom:8px">'+statusBadge(st)+' &nbsp;'+(STATUS_LINE[st]||'')+'</div>'; }
 
@@ -967,7 +971,7 @@ function renderChannels(){
       '<div class="cnt" style="color:'+col+'">'+(live?(n>0?n+' detection'+(n===1?'':'s'):'clear'):'not detecting')+'</div>'+
       '<p>'+c.catches+'</p>'+
       '<div class="hw">Hardware: '+c.hw+(st!=='live'?' — '+STATUS_LINE[st]:'')+'</div>'+
-      '<div class="open" style="margin-top:8px;font-family:Spline Sans Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open ›</div></div>';
+      '<div class="open" style="margin-top:8px;font-family:JetBrains Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open ›</div></div>';
   }).join('');
   $('chgrid').querySelectorAll('.chcard').forEach(el=>el.onclick=()=>openChannel(el.dataset.ch));
 }
@@ -1154,11 +1158,11 @@ function openLocate(d){
     g.fillStyle='#080a0d';g.fillRect(0,0,W,H);
     // instrument frame
     g.strokeStyle='#1b232c';g.lineWidth=1;g.strokeRect(8,8,W-16,H-16);
-    g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';g.textAlign='left';
+    g.fillStyle='#5A6470';g.font='11px JetBrains Mono';g.textAlign='left';
     g.fillText('SIGNAL STRENGTH',24,30);
     if(!hasRf){
-      g.fillStyle='#F2A93B';g.font='600 18px Archivo';g.fillText('NO RF SIGNAL',24,72);
-      g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
+      g.fillStyle='#F2A93B';g.font='600 18px Inter';g.fillText('NO RF SIGNAL',24,72);
+      g.fillStyle='#5A6470';g.font='11px JetBrains Mono';
       g.fillText(dev?'LAN device — found by IP, not radio':'signal lost',24,94);
       locToneStop(); locRAF=requestAnimationFrame(step); return;
     }
@@ -1166,14 +1170,14 @@ function openLocate(d){
     drawMeter(g,24,44,W-48,30,locateDisp,dev.rssi);
     // big numerics: dBm + %
     g.textAlign='left';
-    g.fillStyle='#e6edf3';g.font='600 40px Archivo';g.fillText(dev.rssi+' dBm',24,128);
-    g.fillStyle='#48C9E0';g.font='600 30px Archivo';g.textAlign='right';g.fillText(Math.round(locateDisp*100)+'%',W-24,128);
+    g.fillStyle='#e6edf3';g.font='600 40px Inter';g.fillText(dev.rssi+' dBm',24,128);
+    g.fillStyle='#48C9E0';g.font='600 30px Inter';g.textAlign='right';g.fillText(Math.round(locateDisp*100)+'%',W-24,128);
     g.textAlign='left';
     // proximity trend (secondary, honest — not direction)
     const tcol = trend==null?'#5A6470':trend>1.2?'#3FB984':trend<-1.2?'#E5564B':'#F2A93B';
     const tlabel = trend==null?'— hold steady to read —':trend>1.2?'▲ SIGNAL RISING (closer)':trend<-1.2?'▼ SIGNAL FALLING (farther)':'◆ STEADY';
-    g.fillStyle=tcol;g.font='600 15px Spline Sans Mono';g.fillText(tlabel,24,162);
-    g.fillStyle='#3a4650';g.font='10px Spline Sans Mono';g.fillText(distText(dev)+' · direction needs the antenna',24,182);
+    g.fillStyle=tcol;g.font='600 15px JetBrains Mono';g.fillText(tlabel,24,162);
+    g.fillStyle='#3a4650';g.font='10px JetBrains Mono';g.fillText(distText(dev)+' · direction needs the antenna',24,182);
     // audio
     if(locToneOn) locToneUpdate(locateDisp,dt);
     locRAF=requestAnimationFrame(step);
@@ -1277,7 +1281,7 @@ function drawTunedSpectrum(g,W,H,rfDev){
   const fx=mhz=>padL+plotW*(mhz-lo)/(hi-lo);
   const py=db=>padT+(specH-padT-6)*(1-Math.max(0,Math.min(1,(db-pmin)/(pmax-pmin))));
   // dB grid
-  g.strokeStyle='#1E242C';g.lineWidth=1;g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.textAlign='left';
+  g.strokeStyle='#1E242C';g.lineWidth=1;g.fillStyle='#5A6470';g.font='9px JetBrains Mono';g.textAlign='left';
   for(let k=0;k<=3;k++){const db=Math.round(pmax-(pmax-pmin)*k/3);const y=py(db);g.beginPath();g.moveTo(padL,y);g.lineTo(W-padR,y);g.stroke();g.fillText(db+'dB',2,y+3);}
   // noise-floor line
   const fy=py(floor);g.strokeStyle='#2b6b54';g.setLineDash([3,3]);g.beginPath();g.moveTo(padL,fy);g.lineTo(W-padR,fy);g.stroke();g.setLineDash([]);
@@ -1297,12 +1301,12 @@ function drawTunedSpectrum(g,W,H,rfDev){
   g.stroke();
   // peak marker
   if(t.peak){const x=fx(t.peak.mhz),y=py(t.peak.db);g.fillStyle='#F2A93B';g.beginPath();g.arc(x,y,3,0,7);g.fill();
-    g.fillStyle='#F2A93B';g.font='10px Spline Sans Mono';g.fillText('▲ '+t.peak.mhz.toFixed(3)+' MHz  '+t.peak.db+' dB',Math.min(x+5,W-150),Math.max(padT+10,y-4));}
+    g.fillStyle='#F2A93B';g.font='10px JetBrains Mono';g.fillText('▲ '+t.peak.mhz.toFixed(3)+' MHz  '+t.peak.db+' dB',Math.min(x+5,W-150),Math.max(padT+10,y-4));}
   // focused RF device's frequency marker
   if(rfDev && rfDev.freq_mhz!=null && rfDev.freq_mhz>=lo && rfDev.freq_mhz<=hi){const x=fx(rfDev.freq_mhz);g.strokeStyle='#E5564B';g.lineWidth=1.2;g.beginPath();g.moveTo(x,padT);g.lineTo(x,specH-6);g.stroke();
     g.fillStyle='#E5564B';g.fillText('▼ '+(+rfDev.freq_mhz).toFixed(2)+' MHz',Math.min(x+3,W-90),padT+22);}
   // header readout
-  g.textAlign='left';g.fillStyle='#9FB1C2';g.font='600 12px Spline Sans Mono';
+  g.textAlign='left';g.fillStyle='#9FB1C2';g.font='600 12px JetBrains Mono';
   g.fillText('● LIVE  '+t.center_mhz.toFixed(3)+' MHz  ·  span '+(t.span_hz/1e6).toFixed(2)+' MHz  ·  '+t.demod,padL+2,16);
   g.textAlign='right';g.fillStyle='#3FB984';g.fillText('peak +'+(t.peak?(t.peak.db-floor).toFixed(0):'0')+' dB over floor  · #'+t.n,W-padR,16);
   g.textAlign='left';
@@ -1322,7 +1326,7 @@ function drawTunedWaterfall(g,W,H,t,specH,padL,padR,fx,pmin,pmax){
     sigWaterfall.unshift(row); if(sigWaterfall.length>220)sigWaterfall.pop(); sigSpecN=t.n;
   }
   const wfTop=specH+14, wfH=H-wfTop-2, rowH=2, colW=plotW/cols;
-  g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.textAlign='left';
+  g.fillStyle='#5A6470';g.font='9px JetBrains Mono';g.textAlign='left';
   g.fillText('waterfall — newest on top · one row per real FFT',padL,specH+11);
   const rows=Math.min(sigWaterfall.length,Math.floor(wfH/rowH));
   for(let r=0;r<rows;r++){const row=sigWaterfall[r];
@@ -1351,7 +1355,7 @@ function drawSweepSpectrum(g,W,H,rfDev){
   // shaded watched bands
   (spec.bands||[]).forEach(b=>{g.fillStyle='rgba(242,169,59,0.10)';const x0=fx(b[0]);g.fillRect(x0,6,Math.max(2,fx(b[1])-x0),specH-12);});
   // dB grid
-  g.strokeStyle='#1E242C';g.lineWidth=1;g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.textAlign='left';
+  g.strokeStyle='#1E242C';g.lineWidth=1;g.fillStyle='#5A6470';g.font='9px JetBrains Mono';g.textAlign='left';
   for(let k=0;k<=3;k++){const db=Math.round(pmax-(pmax-pmin)*k/3);const y=py(db);g.beginPath();g.moveTo(padL,y);g.lineTo(W-padR,y);g.stroke();g.fillText(db+'dB',2,y+3);}
   // freq axis ticks
   [25,100,300,433,600,915,1200,1750].forEach(m=>{if(m>=lo&&m<=hi){const x=fx(m);g.fillStyle='#3a4650';g.fillText(m>=1000?(m/1000)+'G':m+'M',Math.min(x,W-26),specH-2);}});
@@ -1363,7 +1367,7 @@ function drawSweepSpectrum(g,W,H,rfDev){
   g.stroke();
   const pk=pts.reduce((a,p)=>p[1]>a[1]?p:a,pts[0]);
   g.fillStyle='#F2A93B';g.beginPath();g.arc(fx(pk[0]),py(pk[1]),3,0,7);g.fill();
-  g.textAlign='left';g.fillStyle='#F2A93B';g.font='10px Spline Sans Mono';
+  g.textAlign='left';g.fillStyle='#F2A93B';g.font='10px JetBrains Mono';
   g.fillText('peak '+pk[1]+' dB @ '+pk[0]+' MHz · floor '+floor+' dB · sweep #'+spec.n,padL+2,14);
   // focused RF device's frequency marker
   if(rfDev && rfDev.freq_mhz!=null){const x=fx(rfDev.freq_mhz);g.strokeStyle='#E5564B';g.lineWidth=1.2;g.beginPath();g.moveTo(x,6);g.lineTo(x,specH-6);g.stroke();
@@ -1376,7 +1380,7 @@ function drawSweepSpectrum(g,W,H,rfDev){
     sigWaterfall.unshift(row); if(sigWaterfall.length>140)sigWaterfall.pop(); sigSpecN=spec.n;
   }
   const wfTop=specH+12, wfH=H-wfTop-2, rowH=2, colW=plotW/cols;
-  g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.fillText('waterfall — each row = one real sweep (newest on top)',padL,specH+9);
+  g.fillStyle='#5A6470';g.font='9px JetBrains Mono';g.fillText('waterfall — each row = one real sweep (newest on top)',padL,specH+9);
   for(let r=0;r<Math.min(sigWaterfall.length,Math.floor(wfH/rowH));r++){
     const row=sigWaterfall[r];
     for(let ci=0;ci<cols;ci++){const v=Math.max(0,Math.min(1,(row[ci]-pmin)/(pmax-pmin)));
@@ -1389,8 +1393,8 @@ function drawNoSignal(g,W,H,title,msg){
   g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
   g.strokeStyle='#1b232c';g.lineWidth=1;g.strokeRect(8,8,W-16,H-16);
   g.textAlign='left';
-  g.fillStyle='#E5564B';g.font='600 30px Archivo';g.fillText(title||'NO SIGNAL',24,H/2-8);
-  g.fillStyle='#5A6470';g.font='12px Spline Sans Mono';
+  g.fillStyle='#E5564B';g.font='600 30px Inter';g.fillText(title||'NO SIGNAL',24,H/2-8);
+  g.fillStyle='#5A6470';g.font='12px JetBrains Mono';
   String(msg||'').split('\n').forEach((ln,i)=>g.fillText(ln,24,H/2+20+i*18));
 }
 
@@ -1398,7 +1402,7 @@ function drawNoSignal(g,W,H,title,msg){
 function drawRssiTrace(g,W,H){
   g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
   g.strokeStyle='#1E242C';g.lineWidth=1;g.textAlign='left';
-  g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';
+  g.fillStyle='#5A6470';g.font='10px JetBrains Mono';
   for(let k=0;k<=3;k++){const dbm=-40-k*20;const y=H*(k/3)*0.82+10;
     g.beginPath();g.moveTo(42,y);g.lineTo(W,y);g.stroke();g.fillText(dbm+' dBm',2,y+3);}
   const col=sigLive?'#48C9E0':'#5A6470';
@@ -1408,8 +1412,8 @@ function drawRssiTrace(g,W,H){
   const last=sigHist[sigHist.length-1];
   g.fillStyle=col;g.beginPath();g.arc(42+(W-50),rssiToY(last,H),3.5,0,7);g.fill();
   g.textAlign='right';
-  g.fillStyle=sigLive?'#9FB1C2':'#5A6470';g.font='600 22px Archivo';g.fillText(last+' dBm',W-16,28);
-  g.fillStyle=sigLive?'#3FB984':'#E5564B';g.font='600 11px Spline Sans Mono';
+  g.fillStyle=sigLive?'#9FB1C2':'#5A6470';g.font='600 22px Inter';g.fillText(last+' dBm',W-16,28);
+  g.fillStyle=sigLive?'#3FB984':'#E5564B';g.font='600 11px JetBrains Mono';
   g.fillText(sigLive?('● LIVE · '+sigHist.length+' real samples'):'○ SIGNAL LOST · last real value',W-16,44);
   g.textAlign='left';
 }
@@ -1421,7 +1425,7 @@ function drawRssiTrace(g,W,H){
 // over time — not a frozen bar. RSSI is genuinely live; this makes it visible.
 function drawChannelBars(g,W,H,devs){
   g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
-  g.textAlign='left';g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
+  g.textAlign='left';g.fillStyle='#5A6470';g.font='11px JetBrains Mono';
   g.fillText('● LIVE RSSI over time · '+devs.length+' device'+(devs.length===1?'':'s')+' · each trace is its real signal moving',16,22);
   const top=38, rowH=30, maxRows=Math.max(1,Math.floor((H-top-12)/rowH)), shown=devs.slice(0,maxRows);
   const spkL=160, spkR=W-86, spkW=spkR-spkL;           // sparkline x-range
@@ -1430,7 +1434,7 @@ function drawChannelBars(g,W,H,devs){
     const y=top+i*rowH;
     const col=d.rssi>=-55?'#3FB984':d.rssi>=-80?'#F2A93B':'#E5564B';
     // name
-    g.fillStyle='#9FB1C2';g.font='11px Spline Sans Mono';g.textAlign='left';
+    g.fillStyle='#9FB1C2';g.font='11px JetBrains Mono';g.textAlign='left';
     g.fillText(String(devTitle(d)).slice(0,20),16,y+rowH/2+3);
     // sparkline track
     g.fillStyle='#0E141b';g.fillRect(spkL,y+3,spkW,rowH-9);
@@ -1451,15 +1455,15 @@ function drawChannelBars(g,W,H,devs){
       const lx=x0+xw, ly=rssiToYrow(hist[n-1],y);
       g.fillStyle=col;g.beginPath();g.arc(lx,ly,2.5,0,7);g.fill();
     } else {
-      g.fillStyle='#3a4650';g.font='9px Spline Sans Mono';g.textAlign='left';
+      g.fillStyle='#3a4650';g.font='9px JetBrains Mono';g.textAlign='left';
       g.fillText('collecting…',spkL+6,y+rowH/2+3);
     }
     // current value
-    g.textAlign='right';g.fillStyle=col;g.font='600 11px Spline Sans Mono';
+    g.textAlign='right';g.fillStyle=col;g.font='600 11px JetBrains Mono';
     g.fillText((d.rssi!=null?d.rssi+' dBm':'—'),W-14,y+rowH/2+3);
   });
   g.textAlign='left';
-  if(devs.length>shown.length){ g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';
+  if(devs.length>shown.length){ g.fillStyle='#5A6470';g.font='10px JetBrains Mono';
     g.fillText('+'+(devs.length-shown.length)+' more',16,top+shown.length*rowH+10); }
 }
 
@@ -1570,7 +1574,7 @@ function netBuildDevList(){
   host.innerHTML='';
   devs.slice(0,40).forEach(d=>{
     const row=document.createElement('button');
-    row.style.cssText="text-align:left;background:#0E141b;border:1px solid #1b232c;border-radius:6px;padding:6px 9px;cursor:pointer;color:var(--ink);font-family:'Spline Sans Mono';font-size:11px";
+    row.style.cssText="text-align:left;background:#0E141b;border:1px solid #1b232c;border-radius:6px;padding:6px 9px;cursor:pointer;color:var(--ink);font-family:'JetBrains Mono';font-size:11px";
     row.innerHTML='<b>'+d.ip+'</b> · '+(d.maker&&d.maker!=='Not announced'?d.maker:(d.device_type||'device'))
       +'<span style="color:var(--dimmer);font-size:10px"> · '+(d.mac||'')+'</span>';
     row.onclick=()=>{ const f=$('netIp'); if(f)f.value=d.ip; netScan(d.ip); };
@@ -1993,16 +1997,16 @@ function radioBuildBands(){
   const host=$('radioBands'); if(host&&!_radioBandsBuilt){ host.innerHTML='';
     radioBands().forEach(b=>{
       const btn=document.createElement('button'); btn.textContent=b.label; btn.dataset.band=b.key;
-      btn.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:3px 8px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+      btn.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:3px 8px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px";
       btn.onclick=()=>radioStartScan(b.key,b.label); host.appendChild(btn);
     });
     _radioBandsBuilt=true;
   }
   const ch=$('radioChanBands'); if(ch&&!_radioChanBuilt){
-    ch.innerHTML='<span style="color:var(--clear);font-weight:600;font-family:\'Spline Sans Mono\';font-size:11px">CHANNELS</span>';
+    ch.innerHTML='<span style="color:var(--clear);font-weight:600;font-family:\'JetBrains Mono\';font-size:11px">CHANNELS</span>';
     radioChanLists().forEach(b=>{
       const btn=document.createElement('button'); btn.textContent=b.label; btn.dataset.chan=b.key;
-      btn.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 9px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+      btn.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:4px 9px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px";
       btn.onclick=()=>radioStartChannels(b.key,b.label); ch.appendChild(btn);
     });
     _radioChanBuilt=true;
@@ -2100,7 +2104,7 @@ function radioWire(){
     freq.addEventListener('input',()=>{ if(typeof radioSetMode==='function') radioSetMode(rfRadio.demod,false); });
   }
   document.querySelectorAll('#radioModes button').forEach(b=>{
-    b.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:3px 8px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+    b.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:3px 8px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px";
     b.onclick=()=>radioSetMode(b.dataset.mode,true);
   });
   radioSetMode(rfRadio.demod,false);   // initial mode highlight
@@ -2168,16 +2172,16 @@ function drawSweepView(g,W,H,scan){
   g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
   const padL=46,padR=14,plotW=W-padL-padR, lo=scan.lo_mhz, hi=scan.hi_mhz;
   // header
-  g.textAlign='left';g.fillStyle='#F2A93B';g.font='600 13px Spline Sans Mono';
+  g.textAlign='left';g.fillStyle='#F2A93B';g.font='600 13px JetBrains Mono';
   g.fillText('◌ SEEKING '+scan.label+(scan.total?' (ch '+(scan.idx+1)+'/'+scan.total+')':''),padL,24);
-  g.fillStyle='#9FB1C2';g.font='600 26px Archivo';g.textAlign='right';
+  g.fillStyle='#9FB1C2';g.font='600 26px Inter';g.textAlign='right';
   g.fillText((scan.ch_name?scan.ch_name+'  ':'')+scan.freq_mhz.toFixed(3)+' MHz',W-padR,30);
   // band track
   const tY=70, tH=26;
   g.fillStyle='#11171e';g.fillRect(padL,tY,plotW,tH);
   g.strokeStyle='#1E242C';g.strokeRect(padL,tY,plotW,tH);
   // ticks
-  g.fillStyle='#3a4650';g.font='9px Spline Sans Mono';g.textAlign='center';
+  g.fillStyle='#3a4650';g.font='9px JetBrains Mono';g.textAlign='center';
   for(let k=0;k<=4;k++){const m=lo+(hi-lo)*k/4;const x=padL+plotW*k/4;g.fillText(m.toFixed(2),x,tY+tH+14);}
   // needle = current sweep position
   const nx=padL+plotW*Math.max(0,Math.min(1,(scan.freq_mhz-lo)/(hi-lo)));
@@ -2189,7 +2193,7 @@ function drawSweepView(g,W,H,scan){
   // signal meter: current over_db vs squelch
   const mY=140, mH=24, over=(scan.over_db==null?0:scan.over_db), sq=scan.squelch_db;
   const maxdb=Math.max(30,sq+6);
-  g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';g.textAlign='left';g.fillText('SIGNAL',padL,mY-6);
+  g.fillStyle='#5A6470';g.font='10px JetBrains Mono';g.textAlign='left';g.fillText('SIGNAL',padL,mY-6);
   g.fillStyle='#11171e';g.fillRect(padL,mY,plotW,mH);
   const lv=Math.max(0,Math.min(1,over/maxdb));
   g.fillStyle=over>=sq?'#3FB984':'#F2A93B';g.fillRect(padL,mY,plotW*lv,mH);
@@ -2198,7 +2202,7 @@ function drawSweepView(g,W,H,scan){
   g.strokeStyle='#E5564B';g.lineWidth=1.5;g.beginPath();g.moveTo(sx,mY-3);g.lineTo(sx,mY+mH+3);g.stroke();
   g.fillStyle='#E5564B';g.textAlign='center';g.fillText('squelch '+sq+'dB',sx,mY+mH+14);
   g.textAlign='right';g.fillStyle='#9FB1C2';g.fillText((scan.over_db==null?'—':scan.over_db+' dB'),W-padR,mY+mH+14);
-  g.textAlign='left';g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
+  g.textAlign='left';g.fillStyle='#5A6470';g.font='11px JetBrains Mono';
   g.fillText('Stops and listens when a channel rises above the squelch line.',padL,H-16);
 }
 
@@ -2279,7 +2283,7 @@ function rfWireControls(){
   };
   [['−1',-1],['−0.1',-0.1],['+0.1',0.1],['+1',1]].forEach(pair=>{
     const b=document.createElement('button'); b.textContent=pair[0];
-    b.style.cssText="background:#11171e;color:var(--dim);border:1px solid #25303a;border-radius:5px;padding:3px 6px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+    b.style.cssText="background:#11171e;color:var(--dim);border:1px solid #25303a;border-radius:5px;padding:3px 6px;cursor:pointer;font-family:'JetBrains Mono';font-size:11px";
     b.onclick=()=>{ rfRadio.center=Math.max(25,Math.min(1750,Math.round((rfRadio.center+pair[1])*10)/10));
       const ff=$('rfFreq'); if(ff) ff.value=rfRadio.center; rfTuneNow(); };
     nd.appendChild(b);
