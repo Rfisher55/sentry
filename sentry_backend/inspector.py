@@ -94,6 +94,175 @@ DEFAULT_CRED_HINTS = {
 }
 
 
+# ===================== vulnerability awareness (version-based) ==============
+# A curated list of well-known issues keyed to software + version. This is
+# AWARENESS based on the version a service reports — not a live CVE feed and not
+# an exploit. Always confirm against the vendor's advisory. (max = affected if
+# version < max; exact = affected only at that exact version.)
+KNOWN_VULNS = [
+    {"product": "vsftpd", "exact": "2.3.4", "id": "CVE-2011-2523", "sev": "critical",
+     "what": "vsftpd 2.3.4 shipped with a deliberate backdoor.",
+     "fix": "Remove/replace this FTP server immediately; it may be compromised."},
+    {"product": "openssh", "max": "7.7", "id": "CVE-2018-15473", "sev": "medium",
+     "what": "Username enumeration in OpenSSH < 7.7.",
+     "fix": "Update OpenSSH to 7.7 or later."},
+    {"product": "dnsmasq", "max": "2.90", "id": "CVE-2023-50387/50868 (KeyTrap), CVE-2023-28450",
+     "sev": "medium", "what": "DNS/DNSSEC vulnerabilities fixed in dnsmasq 2.90.",
+     "fix": "Update the router firmware (dnsmasq) to 2.90 or later if available."},
+    {"product": "dnsmasq", "max": "2.83", "id": "DNSpooq (CVE-2020-25681…)", "sev": "high",
+     "what": "DNS cache poisoning + heap overflow (DNSpooq) in dnsmasq < 2.83.",
+     "fix": "Update the router firmware (dnsmasq) urgently."},
+    {"product": "lighttpd", "max": "1.4.64", "id": "CVE-2022-22707 / CVE-2019-11072", "sev": "medium",
+     "what": "Buffer/URL handling issues in older lighttpd.",
+     "fix": "Update lighttpd (often via router/NAS firmware)."},
+    {"product": "apache", "max": "2.4.51", "id": "CVE-2021-41773/42013", "sev": "high",
+     "what": "Path traversal → possible RCE in Apache httpd 2.4.49/2.4.50.",
+     "fix": "Update Apache httpd to 2.4.51 or later."},
+    {"product": "samba", "max": "4.6.4", "id": "CVE-2017-7494 (SambaCry)", "sev": "high",
+     "what": "Remote code execution in older Samba.",
+     "fix": "Update Samba; restrict SMB to trusted hosts."},
+    {"product": "miniupnpd", "max": "2.1", "id": "various UPnP", "sev": "medium",
+     "what": "Memory-safety issues in older MiniUPnPd.",
+     "fix": "Disable UPnP on the router unless needed; update firmware."},
+    {"product": "rompager", "max": "4.34", "id": "CVE-2014-9222 (Misfortune Cookie)", "sev": "high",
+     "what": "Embedded RomPager web server allows admin takeover.",
+     "fix": "Update router firmware or replace the device."},
+]
+
+
+def _vtuple(v):
+    if not v:
+        return None
+    nums = []
+    for part in str(v).replace("-", ".").replace("p", ".").split("."):
+        if part.isdigit():
+            nums.append(int(part))
+        else:
+            break
+    return tuple(nums) if nums else None
+
+
+def vuln_match(product, version):
+    """Version-based vulnerability awareness for one service (not a live CVE
+    scan, not an exploit). Returns a list of findings."""
+    if not product:
+        return []
+    pl = product.lower()
+    ver = _vtuple(version)
+    out = []
+    for e in KNOWN_VULNS:
+        if e["product"] not in pl:
+            continue
+        hit = False
+        if "exact" in e:
+            hit = (str(version).strip() == e["exact"])
+        elif "max" in e and ver:
+            mv = _vtuple(e["max"])
+            hit = bool(mv) and ver < mv
+        if hit:
+            out.append({"id": e["id"], "severity": e["sev"], "what": e["what"], "fix": e["fix"]})
+    return out
+
+
+_SEV_SCORE = {"critical": 40, "high": 25, "medium": 12, "low": 4, "info": 0}
+
+
+def risk_score(open_ports, vulns, plaintext_count=0):
+    """A rough exposure score (0–100) + label + the main reasons, for ranking
+    YOUR devices by how much they expose."""
+    score = 0
+    reasons = []
+    for p in open_ports:
+        if p in RISK:
+            sv = RISK[p][0]
+            score += _SEV_SCORE.get(sv, 4)
+            reasons.append(f"{PORTS.get(p, ('port '+str(p), False))[0]} open ({sv})")
+    for v in vulns:
+        score += _SEV_SCORE.get(v.get("severity", "low"), 4)
+        reasons.append(f"{v['id']} ({v['severity']})")
+    score += min(15, plaintext_count * 3)
+    score = min(100, score)
+    label = ("critical" if score >= 70 else "high" if score >= 45
+             else "medium" if score >= 20 else "low")
+    return {"score": score, "label": label, "reasons": reasons[:6]}
+
+
+# ===================== web-server check (nikto-lite) ========================
+_WEB_PATHS = ["/robots.txt", "/.git/HEAD", "/.env", "/config.php", "/admin/",
+              "/server-status", "/phpinfo.php", "/backup.zip", "/.htpasswd",
+              "/wp-login.php", "/cgi-bin/"]
+_SEC_HEADERS = {"x-frame-options": "clickjacking protection",
+                "content-security-policy": "content-injection protection",
+                "x-content-type-options": "MIME-sniffing protection"}
+
+
+def web_check(ip, port=80, tls=False, timeout=4):
+    """Light, non-intrusive web-server check for a device's admin/IoT web UI on
+    YOUR network: software/version disclosure, missing security headers,
+    directory listing, and a few commonly-exposed files. (A real nikto run is a
+    deeper upgrade — we detect/recommend it.) GET requests only; no exploitation."""
+    import urllib.request
+    import ssl
+    if not _is_private(ip):
+        return {"ok": False, "error": "Private/LAN targets only."}
+    scheme = "https" if tls else "http"
+    base = f"{scheme}://{ip}" + ("" if port in (80, 443) else f":{port}")
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    findings = []
+    server = ""
+
+    def fetch(path, method="GET"):
+        req = urllib.request.Request(base + path, method=method,
+                                     headers={"User-Agent": "SENTRY-webcheck"})
+        return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+
+    try:
+        r = fetch("/")
+        hdrs = {k.lower(): v for k, v in r.headers.items()}
+        body = r.read(4096).decode("latin-1", "replace")
+        server = hdrs.get("server", "")
+        if server:
+            vm = vuln_match(server.split("/")[0], server.split("/")[-1] if "/" in server else "")
+            findings.append({"severity": "info", "what": f"Server software disclosed: {server}",
+                             "fix": "Hide the Server header if the device allows it.", "vulns": vm})
+        for h, why in _SEC_HEADERS.items():
+            if h not in hdrs:
+                findings.append({"severity": "low",
+                                 "what": f"Missing '{h}' header ({why}).",
+                                 "fix": f"Enable {h} on the web server if it's yours to configure."})
+        if "tls" not in scheme and "set-cookie" in hdrs:
+            findings.append({"severity": "medium",
+                             "what": "Login/session over plain HTTP — credentials and cookies are in the clear.",
+                             "fix": "Use the device's HTTPS port; change default credentials."})
+        if "index of /" in body.lower():
+            findings.append({"severity": "medium", "what": "Directory listing is enabled (Index of /).",
+                             "fix": "Disable auto-indexing on the web server."})
+    except Exception as e:
+        return {"ok": False, "error": f"Could not reach {base}: {e}", "url": base}
+
+    exposed = []
+    for path in _WEB_PATHS:
+        try:
+            rr = fetch(path)
+            if rr.status == 200:
+                exposed.append(path)
+        except Exception:
+            pass
+    if exposed:
+        findings.append({"severity": "high",
+                         "what": "Exposed/accessible paths: " + ", ".join(exposed),
+                         "fix": "Remove or restrict these — they can leak config, source, or admin access."})
+
+    nikto = shutil.which("nikto")
+    return {"ok": True, "url": base, "server": server, "findings": findings,
+            "nikto_available": bool(nikto),
+            "nikto_note": ("nikto found — a deeper web scan is available." if nikto else
+                           "For a deeper web-server audit, install nikto (needs Perl): "
+                           "https://github.com/sullo/nikto. This built-in check covers the basics.")}
+
+
 def service_note(port, service=""):
     """One-line plain-English note on a service + whether it should be exposed."""
     if port in RISK:
@@ -320,10 +489,12 @@ def _parse_nmap_xml(xml):
             extra = svc.get("extrainfo", "") if svc is not None else ""
             scripts = [{"id": s.get("id", ""), "output": (s.get("output", "") or "").strip()[:400]}
                        for s in p.findall("script")]
+            pid = int(p.get("portid", 0))
             ports.append({
-                "port": int(p.get("portid", 0)), "proto": p.get("protocol", "tcp"),
+                "port": pid, "proto": p.get("protocol", "tcp"),
                 "service": sname, "product": product, "version": version, "extra": extra,
-                "note": service_note(int(p.get("portid", 0)), sname),
+                "note": service_note(pid, sname),
+                "vulns": vuln_match(product, version),
                 "scripts": scripts,
             })
         osmatch = ""
@@ -333,9 +504,12 @@ def _parse_nmap_xml(xml):
             osmatch = om.get("name", ""); osacc = om.get("accuracy", "")
         hscripts = [{"id": s.get("id", ""), "output": (s.get("output", "") or "").strip()[:400]}
                     for s in h.findall("hostscript/script")]
+        all_vulns = [v for p in ports for v in p.get("vulns", [])]
+        plaintext_n = sum(1 for p in ports if p["port"] in _PLAINTEXT_PORTS)
+        risk = risk_score([p["port"] for p in ports], all_vulns, plaintext_n)
         hosts.append({"ip": addr, "mac": mac, "vendor": vendor, "hostname": hostname,
                       "ports": ports, "os": osmatch, "os_accuracy": osacc,
-                      "host_scripts": hscripts})
+                      "host_scripts": hscripts, "vulns": all_vulns, "risk": risk})
     rs = root.find("runstats/finished")
     summary = rs.get("summary", "") if rs is not None else ""
     return {"hosts": hosts, "summary": summary, "host_count": len(hosts)}

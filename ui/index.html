@@ -1632,28 +1632,61 @@ function netNmapRun(){
   const b=$('netNmapBtn'); if(b){ b.disabled=true; b.textContent='◌ scanning…'; }
   rfSend({cmd:'net_nmap_scan', target:tgt, scan_type:ty});
 }
+const RSKCOL={critical:'#E5564B',high:'#E5564B',medium:'#F2A93B',low:'#3FB984',info:'#5A6470'};
 function netRenderNmap(r){
   const b=$('netNmapBtn'); if(b){ b.disabled=false; b.textContent='▶ RUN NMAP'; }
   const el=$('netNmapResult'); if(!el) return;
   if(!r||!r.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((r&&r.error)||'scan failed')+'</span>'+(r&&r.admin_note?'<br><span style="color:var(--dimmer)">'+r.admin_note+'</span>':''); return; }
+  // prioritized hardening list aggregated across the scan
+  let fixes=[];
+  (r.hosts||[]).forEach(ho=>(ho.vulns||[]).forEach(v=>fixes.push({ip:ho.ip,sev:v.severity,what:v.fix})));
+  fixes.sort((a,b)=>(({critical:0,high:1,medium:2,low:3})[a.sev]??4)-(({critical:0,high:1,medium:2,low:3})[b.sev]??4));
   let h='<div style="color:var(--ink)"><b>'+r.label+'</b> on '+r.target+' — '+r.host_count+' host'+(r.host_count===1?'':'s')+' up'
     +' <span style="color:var(--dimmer)">'+(r.summary||'')+'</span></div>';
   if(r.admin_note) h+='<div style="color:var(--amber);font-size:10px;margin:3px 0">'+r.admin_note+'</div>';
+  if(fixes.length){
+    h+='<div style="margin:6px 0;background:#0E141b;border:1px solid #1b232c;border-radius:6px;padding:6px 9px">'
+      +'<span style="color:var(--alert)">⚑ Prioritized fixes:</span>';
+    fixes.slice(0,6).forEach(f=>h+='<div style="font-size:10.5px"><b style="color:'+(RSKCOL[f.sev]||'#888')+'">'+f.sev.toUpperCase()+'</b> '+f.ip+' — '+f.what+'</div>');
+    h+='</div>';
+  }
   (r.hosts||[]).slice(0,30).forEach(ho=>{
+    const rk=ho.risk||{score:0,label:'low',reasons:[]};
     h+='<div style="border-top:1px solid #1b232c;margin-top:6px;padding-top:5px">'
       +'<b style="color:var(--clear)">'+ho.ip+'</b>'+(ho.hostname?' · '+ho.hostname:'')+(ho.vendor?' · '+ho.vendor:'')
-      +(ho.os?' · <span style="color:var(--cyan)">OS: '+ho.os+' ('+ho.os_accuracy+'%)</span>':'')+'</div>';
+      +(ho.os?' · <span style="color:var(--cyan)">OS: '+ho.os+' ('+ho.os_accuracy+'%)</span>':'')
+      +(ho.ports&&ho.ports.length?' · <span style="color:'+(RSKCOL[rk.label]||'#888')+'">risk '+rk.score+'/'+rk.label+'</span>':'')+'</div>';
     (ho.ports||[]).forEach(p=>{
       const enc = p.port===443||p.port===22||p.port===8443;
+      const web = [80,443,8080,8443,8000].indexOf(p.port)>=0;
       h+='<div style="padding-left:8px;font-size:10.5px"><span style="color:'+(enc?'#3FB984':'#F2A93B')+'">'+p.port+'/'+p.proto+'</span> '
         +'<b style="color:var(--ink)">'+p.service+'</b> '+(p.product?p.product:'')+' '+(p.version?p.version:'')
-        +' <span style="color:var(--dimmer)">— '+p.note+'</span>';
-      (p.scripts||[]).forEach(s=>{ if(s.output) h+='<div style="padding-left:10px;color:var(--dim);font-size:10px">↳ '+s.id+': '+s.output.replace(/</g,'&lt;').slice(0,200)+'</div>'; });
+        +' <span style="color:var(--dimmer)">— '+p.note+'</span>'
+        +(web?' <button onclick="netWeb(\''+ho.ip+'\','+p.port+','+(p.port===443||p.port===8443)+')" style="background:#11171e;color:var(--cyan);border:1px solid #25303a;border-radius:4px;padding:1px 6px;cursor:pointer;font-family:inherit;font-size:9.5px">🌐 web check</button>':'');
+      (p.vulns||[]).forEach(v=>h+='<div style="padding-left:12px;font-size:10px"><b style="color:'+(RSKCOL[v.severity]||'#888')+'">⚠ '+v.severity.toUpperCase()+' '+v.id+'</b> — '+v.what+' <span style="color:var(--clear)">→ '+v.fix+'</span></div>');
+      (p.scripts||[]).forEach(s=>{ if(s.output) h+='<div style="padding-left:12px;color:var(--dim);font-size:10px">↳ '+s.id+': '+s.output.replace(/</g,'&lt;').slice(0,180)+'</div>'; });
       h+='</div>';
     });
-    (ho.host_scripts||[]).forEach(s=>{ if(s.output) h+='<div style="padding-left:8px;color:var(--dim);font-size:10px">↳ '+s.id+': '+s.output.replace(/</g,'&lt;').slice(0,200)+'</div>'; });
+    (ho.host_scripts||[]).forEach(s=>{ if(s.output) h+='<div style="padding-left:8px;color:var(--dim);font-size:10px">↳ '+s.id+': '+s.output.replace(/</g,'&lt;').slice(0,180)+'</div>'; });
     if(!(ho.ports||[]).length && r.scan_type!=='discovery') h+='<div style="padding-left:8px;color:var(--clear);font-size:10.5px">No open ports found — minimal exposure ✓</div>';
   });
+  el.innerHTML=h+'<div id="netWebResult" style="margin-top:7px"></div>';
+}
+function netWeb(ip,port,tls){
+  const el=$('netWebResult'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Web check '+ip+':'+port+'…</span>';
+  rfSend({cmd:'net_web_check', ip:ip, port:port, tls:!!tls});
+}
+function netRenderWeb(w){
+  const el=$('netWebResult'); if(!el) return;
+  if(!w||!w.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((w&&w.error)||'web check failed')+'</span>'; return; }
+  let h='<div style="background:#0E141b;border:1px solid #1b232c;border-radius:6px;padding:7px 9px">'
+    +'<span style="color:var(--cyan)">🌐 Web check '+w.url+'</span>'+(w.server?' · <b>'+w.server+'</b>':'');
+  (w.findings||[]).forEach(f=>{
+    h+='<div style="font-size:10.5px"><b style="color:'+(RSKCOL[f.severity]||'#888')+'">'+f.severity.toUpperCase()+'</b> '+f.what+' <span style="color:var(--clear)">→ '+f.fix+'</span></div>';
+    (f.vulns||[]).forEach(v=>h+='<div style="padding-left:10px;font-size:10px;color:'+(RSKCOL[v.severity]||'#888')+'">⚠ '+v.id+' — '+v.what+'</div>');
+  });
+  if(!(w.findings||[]).length) h+='<div style="color:var(--clear);font-size:10.5px">No obvious web issues found ✓</div>';
+  h+='<div style="color:var(--dimmer);font-size:9.5px;margin-top:3px">'+(w.nikto_note||'')+'</div></div>';
   el.innerHTML=h;
 }
 function netWire(){
@@ -2155,6 +2188,7 @@ function connectBackend(){
       if(msg && msg.type==='net_traffic'){ if(typeof netRenderTraffic==='function') netRenderTraffic(msg.summary); return; }
       if(msg && msg.type==='net_nmap_status'){ B._net_nmap=msg.status; if(typeof netRenderNmapStatus==='function') netRenderNmapStatus(); return; }
       if(msg && msg.type==='net_nmap'){ if(typeof netRenderNmap==='function') netRenderNmap(msg.result); return; }
+      if(msg && msg.type==='net_web'){ if(typeof netRenderWeb==='function') netRenderWeb(msg.result); return; }
       if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
       if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){

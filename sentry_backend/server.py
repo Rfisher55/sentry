@@ -420,6 +420,14 @@ async def _serve(station):
                                 await ws.send(json.dumps({"type": "net_nmap", "result": res}))
                             except Exception:
                                 pass
+                        elif cn == "net_web_check":
+                            res = await asyncio.to_thread(
+                                inspector.web_check, cmd.get("ip"),
+                                int(cmd.get("port", 80)), bool(cmd.get("tls", False)))
+                            try:
+                                await ws.send(json.dumps({"type": "net_web", "result": res}))
+                            except Exception:
+                                pass
             except Exception:
                 pass
 
