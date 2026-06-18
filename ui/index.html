@@ -318,10 +318,16 @@
           <span style="color:var(--amber);font-weight:600">SWEEP</span>
           <span id="radioBands" style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
           <span style="color:var(--cyan);font-weight:600;margin-left:auto">TUNE</span>
-          <input id="radioFreq" type="number" step="0.1" min="25" max="1750" placeholder="98.0" style="width:80px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:inherit;font-size:11px">
+          <input id="radioFreq" type="number" step="0.1" min="25" max="1750" placeholder="98.5" style="width:80px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:inherit;font-size:11px">
           <span>MHz</span>
-          <select id="radioDemod" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:3px 6px;font-family:inherit;font-size:11px"><option value="WFM">WFM</option><option value="AM">AM</option><option value="NFM">NFM</option></select>
-          <button id="radioListen" style="background:#13242b;color:var(--clear);border:1px solid var(--clear);border-radius:5px;padding:3px 11px;cursor:pointer;font-family:inherit;font-size:11px">▶ LISTEN</button>
+          <button id="radioListen" title="Tune the dongle to this frequency and listen" style="background:#13242b;color:var(--clear);border:1px solid var(--clear);border-radius:5px;padding:3px 11px;cursor:pointer;font-family:inherit;font-size:11px">▶ GO</button>
+          <span style="color:var(--cyan);font-weight:600;margin-left:6px">MODE</span>
+          <span id="radioModes" style="display:inline-flex;gap:4px">
+            <button data-mode="WFM" title="Wide FM — broadcast FM radio, 88–108 MHz">WFM</button>
+            <button data-mode="AM"  title="AM — aviation/air band 118–137 MHz, CB 27 MHz">AM</button>
+            <button data-mode="NFM" title="Narrow FM — ham, FRS/GMRS, marine, weather, business">NFM</button>
+          </span>
+          <span id="radioModeHint" style="color:var(--dimmer);font-size:10px"></span>
         </div>
         <canvas id="radioCanvas" width="640" height="300" style="width:100%;border-radius:8px;background:#0B0E12"></canvas>
         <div id="radioStatus" style="font-family:'Spline Sans Mono';font-size:12px;color:var(--ink);min-height:16px"></div>
@@ -1466,6 +1472,8 @@ function radioStartChannels(key,label){     // channel-flip: park on ch 1 and li
   rfAudioEnsure(); rfScanning=true; rfRadio.audio=false; rfNextTime=0;
   B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
   radioHighlight('#radioChanBands',key); radioHighlight('#radioBands',null); radioAutoSet(false);
+  const cl=((B._rf_meta&&B._rf_meta.channel_lists)||[]).find(x=>x.key===key);
+  radioSetMode(cl&&cl.demod?cl.demod:(key==='fm'?'WFM':key==='air'||key==='cb'?'AM':'NFM'),false);
   const sq=parseInt(($('radioSquelch')||{}).value||'8',10);
   rfSend({cmd:'rf_scan', kind:'channels', list_key:key, auto:false, squelch_db:sq});
 }
@@ -1474,6 +1482,7 @@ function radioStartScan(key,label){          // raw frequency sweep of a band
   rfAudioEnsure(); rfScanning=true; rfRadio.audio=false; rfNextTime=0;
   B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
   radioHighlight('#radioBands',key); radioHighlight('#radioChanBands',null); radioAutoSet(true);
+  const b=radioBands().find(x=>x.key===key); if(b&&b.demod) radioSetMode(b.demod,false);
   const sq=parseInt(($('radioSquelch')||{}).value||'8',10);
   rfSend({cmd:'rf_scan', kind:'sweep', band:key, squelch_db:sq});
 }
@@ -1484,14 +1493,39 @@ function radioStop(){
   B._rf_scan=null; B._rf_tuned=null;
   if(rfOnline()) rfSend({cmd:'rf_sweep'});   // release dongle to surveillance
 }
-function radioListen(){
+// pick the demodulation that fits a frequency (broadcast FM=WFM, air/CB=AM, else NFM)
+function radioModeForFreq(mhz){
+  if(mhz>=87.5 && mhz<=108) return 'WFM';
+  if(mhz>=118 && mhz<=137)  return 'AM';     // aviation / air band
+  if(mhz>=26   && mhz<=28)   return 'AM';     // CB
+  return 'NFM';                               // ham, FRS/GMRS, marine, weather, business
+}
+// set the active demod mode; highlight the buttons, hint if it mismatches the freq,
+// and (when listening) re-tune the dongle so the audio changes immediately.
+function radioSetMode(m, retune){
+  rfRadio.demod=m;
+  document.querySelectorAll('#radioModes button').forEach(b=>{
+    const on=b.dataset.mode===m;
+    b.style.background=on?'#13242b':'#11171e'; b.style.color=on?'var(--cyan)':'var(--ink)';
+    b.style.borderColor=on?'var(--cyan)':'#25303a';
+  });
+  const hint=$('radioModeHint');
+  if(hint){ const v=parseFloat(($('radioFreq')||{}).value); const want=!isNaN(v)?radioModeForFreq(v):null;
+    hint.textContent=(want&&want!==m)?('⚠ '+v+' MHz is usually '+want):'';
+    hint.style.color=(want&&want!==m)?'var(--amber)':'var(--dimmer)'; }
+  if(retune && rfRadio.audio && rfOnline()){      // live re-demod while listening
+    rfRadio.span = m==='WFM'?2400000:240000; rfNextTime=0; rfTuneNow();
+  }
+}
+function radioListen(){                            // GO: tune to the typed freq + listen
   if(!rfOnline())return;
   rfAudioEnsure();
   let v=parseFloat(($('radioFreq')||{}).value); if(isNaN(v))return;
   v=Math.max(25,Math.min(1750,v));
   rfScanning=false; radioAutoSet(false);
   radioHighlight('#radioBands',null); radioHighlight('#radioChanBands',null); B._rf_scan=null;
-  rfRadio.center=v; rfRadio.demod=($('radioDemod')||{}).value||'WFM';
+  radioSetMode(radioModeForFreq(v), false);       // auto-pick the right mode for this freq
+  rfRadio.center=v;
   rfRadio.span = rfRadio.demod==='WFM' ? 2400000 : 240000;
   rfRadio.audio=true; rfNextTime=0; B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
   rfTuneNow();
@@ -1507,7 +1541,16 @@ function radioWire(){
   if(auto) auto.onclick=()=>{ if(!rfScanning)return; radioAutoSet(!rfScanAuto); rfSend({cmd:'rf_scan_auto',auto:rfScanAuto}); };
   if(sq) sq.oninput=()=>{ if(sqv) sqv.textContent=sq.value+' dB'; if(rfScanning) rfSend({cmd:'rf_scan_squelch',squelch_db:parseInt(sq.value,10)}); };
   if(listen) listen.onclick=radioListen;
-  if(freq) freq.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();radioListen();} });
+  if(freq){
+    freq.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();radioListen();} });
+    // typing a freq updates the mode hint live (shows the recommended mode)
+    freq.addEventListener('input',()=>{ if(typeof radioSetMode==='function') radioSetMode(rfRadio.demod,false); });
+  }
+  document.querySelectorAll('#radioModes button').forEach(b=>{
+    b.style.cssText="background:#11171e;color:var(--ink);border:1px solid #25303a;border-radius:5px;padding:3px 8px;cursor:pointer;font-family:'Spline Sans Mono';font-size:11px";
+    b.onclick=()=>radioSetMode(b.dataset.mode,true);
+  });
+  radioSetMode(rfRadio.demod,false);   // initial mode highlight
 }
 function startRadio(){
   radioWire(); radioBuildBands();
@@ -1543,12 +1586,12 @@ function drawRadio(){
       +' · stops on activity above '+scan.squelch_db+' dB';
   } else if(B._rf_tuned){
     drawTunedSpectrum(g,W,H,null);
-    if(stat){ const lk=scan&&scan.locked, isCh=scan&&scan.kind==='channels';
-      const lead = lk?'<span style="color:var(--clear)">● LOCKED · listening</span> '
-                     :'<span style="color:var(--clear)">● LISTENING</span> ';
-      stat.innerHTML=lead+(scan?chLabel(scan):B._rf_tuned.center_mhz.toFixed(3)+' MHz')+' · '+B._rf_tuned.demod
-        +(isCh&&!lk?' · ◀ PREV / NEXT ▶ to flip · AUTO-SEEK to scan':'')
-        +(lk?' · SKIP for the next signal':''); }
+    if(stat){ const auto=scan&&scan.auto, lk=scan&&scan.locked, isCh=scan&&scan.kind==='channels';
+      let lead, tail='';
+      if(scan && auto && lk){ lead='<span style="color:var(--amber)">● AUTO-SCAN · holding</span> '; tail=' · resumes shortly · SKIP for next now'; }
+      else if(scan && !auto){ lead='<span style="color:var(--clear)">● HOLD</span> '; tail=isCh?' · ◀ PREV / NEXT ▶ to flip · AUTO-SEEK to scan':' · AUTO-SEEK to scan'; }
+      else { lead='<span style="color:var(--clear)">● LISTENING</span> '; }
+      stat.innerHTML=lead+(scan?chLabel(scan):B._rf_tuned.center_mhz.toFixed(3)+' MHz')+' · '+B._rf_tuned.demod+tail; }
   } else {
     drawNoSignal(g,W,H,'RADIO IDLE','Pick a CHANNELS band to flip through real channels,\nor a SWEEP band to step raw frequencies, or type a freq + LISTEN.\nTuner ~25 MHz – 1.75 GHz · analog only.');
     if(stat) stat.textContent='';

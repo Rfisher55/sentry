@@ -210,13 +210,16 @@ class RFSensor(Sensor):
         self._dsp_thread = None
 
         # --- scanner (sweep/channel-flip/auto-seek/listen) state ---
-        self._scan_cfg = dict(SCAN_BANDS["fm"], band="fm", kind="sweep", squelch_db=8.0)
+        self._scan_cfg = dict(SCAN_BANDS["fm"], band="fm", kind="sweep",
+                              squelch_db=8.0, dwell_s=3.0)
         self._scan_epoch = 0
         self._scan_pos = None       # current sweep frequency (Hz), sweep mode
         self._scan_channels = []    # active channel list [{mhz,name,demod,band}]
         self._scan_idx = 0          # current channel index, channels mode
         self._scan_auto = True      # True = auto-seek/flip; False = manual park+listen
-        self._scan_locked = False   # parked on an active signal (listening)
+        self._scan_locked = False   # dwelling on an active signal (auto mode)
+        self._scan_lock_t = 0.0     # time we locked (for the dwell timeout)
+        self._scan_active_t = 0.0   # last time the locked signal was above squelch
         self._scan_log = []         # recent hits [{mhz, name, over, t}]
         self._scan_n = 0            # state counter (bumps on update)
         self._scan_cur = None       # latest scan-state dict for the UI
@@ -425,7 +428,8 @@ class RFSensor(Sensor):
                 cfg = {"kind": "channels", "list_key": lk,
                        "label": ("All bands" if lk == "all"
                                  else CHANNEL_LISTS.get(lk, {}).get("label", lk)),
-                       "lo": fmin, "hi": fmax, "squelch_db": sq}
+                       "lo": fmin, "hi": fmax, "squelch_db": sq,
+                       "dwell_s": self._scan_cfg.get("dwell_s", 3.0)}
                 self._scan_channels = chans
                 self._scan_idx = 0
                 self._scan_auto = True if auto is None else bool(auto)
@@ -445,6 +449,7 @@ class RFSensor(Sensor):
                 cfg["kind"] = "sweep"
                 cfg.setdefault("span_hz", 240000); cfg.setdefault("half_bw", 7000)
                 cfg["squelch_db"] = sq
+                cfg["dwell_s"] = self._scan_cfg.get("dwell_s", 3.0)
                 self._scan_pos = None
                 self._scan_auto = True
             self._scan_cfg = cfg
@@ -484,11 +489,12 @@ class RFSensor(Sensor):
             self._audio_buf.clear()
 
     def scan_auto(self, on):
-        """Toggle auto-seek (True) vs manual park-and-listen (False)."""
+        """Toggle auto-seek (True = scan with dwell) vs manual HOLD (False = stay
+        on the current channel/frequency and keep listening)."""
         with self._lock:
             self._scan_auto = bool(on)
-            if on:
-                self._scan_locked = False     # resume seeking from here
+            self._scan_locked = False          # neither dwell-locked now
+            self._scan_lock_t = 0.0
             self._audio_buf.clear()
 
     def scan_set_squelch(self, squelch_db):
@@ -631,7 +637,7 @@ class RFSensor(Sensor):
                     self._error = str(e); time.sleep(0.2); continue
                 cur_sr = sr; self._sweep_configured = False
             if (not auto) or locked:
-                # listen on this channel (manual park, or auto-locked on a signal)
+                # listen on this channel (manual HOLD, or auto dwell on a hit)
                 k = self._audio_decim(sr, demod)
                 nsamp = max(k, int(round(sr * 0.25 / k)) * k)
                 try:
@@ -646,6 +652,11 @@ class RFSensor(Sensor):
                     pass
                 over = self._block_over(x, sr, half_bw)
                 self._set_scan_state_ch(cfg, chans, idx, over, locked=(auto and locked), auto=auto)
+                if auto and locked and self._scan_resume_due(over, squelch, cfg):
+                    with self._lock:
+                        self._scan_locked = False
+                        self._scan_idx = (idx + 1) % len(chans)   # dwell over → next
+                    self._audio_buf.clear()
             else:
                 # auto-seek: measure this channel, lock if active else advance
                 try:
@@ -654,13 +665,7 @@ class RFSensor(Sensor):
                     self._error = str(e); over = -999.0; time.sleep(0.04)
                 self._set_scan_state_ch(cfg, chans, idx, over, locked=False, auto=True)
                 if over >= squelch:
-                    with self._lock:
-                        self._scan_locked = True
-                        self._scan_log.insert(0, {"mhz": round(center / 1e6, 4),
-                                                  "name": ch["name"],
-                                                  "over": round(float(over), 1),
-                                                  "t": self._scan_n})
-                        self._scan_log = self._scan_log[:30]
+                    self._scan_lock(round(center / 1e6, 4), over, ch["name"])
                 else:
                     with self._lock:
                         self._scan_idx = (idx + 1) % len(chans)
@@ -685,10 +690,12 @@ class RFSensor(Sensor):
 
         while self._mode == "scan" and self._scan_epoch == epoch:
             with self._lock:
+                auto = self._scan_auto
                 locked = self._scan_locked
                 pos = self._scan_pos
                 squelch = self._scan_cfg["squelch_db"]
-            if locked:
+            if (not auto) or locked:
+                # listen at pos (manual HOLD, or auto dwell on a hit)
                 k = self._audio_decim(sr, demod)
                 nsamp = max(k, int(round(sr * 0.25 / k)) * k)
                 try:
@@ -701,26 +708,54 @@ class RFSensor(Sensor):
                     self._iq_q.put_nowait((x, req, float(sr)))
                 except queue.Full:
                     pass
-                self._set_scan_state(cfg, pos, None, True)
+                over = self._block_over(x, sr, half_bw)
+                self._set_scan_state(cfg, pos, over, locked=(auto and locked), auto=auto)
+                if auto and locked and self._scan_resume_due(over, squelch, cfg):
+                    npos = pos + step
+                    if npos > hi:
+                        npos = lo
+                    with self._lock:
+                        self._scan_locked = False
+                        self._scan_pos = npos                 # dwell over → next
+                    self._audio_buf.clear()
             else:
                 try:
                     over = self._channel_active(pos, sr, half_bw)
                 except Exception as e:
                     self._error = str(e); over = -999.0; time.sleep(0.05)
-                self._set_scan_state(cfg, pos, over, False)
+                self._set_scan_state(cfg, pos, over, locked=False, auto=True)
                 if over >= squelch:
-                    with self._lock:
-                        self._scan_locked = True
-                        self._scan_log.insert(0, {"mhz": round(pos / 1e6, 4),
-                                                  "over": round(float(over), 1),
-                                                  "t": self._scan_n})
-                        self._scan_log = self._scan_log[:30]
+                    self._scan_lock(round(pos / 1e6, 4), over, None)
                 else:
-                    pos += step
-                    if pos > hi:
-                        pos = lo
+                    npos = pos + step
+                    if npos > hi:
+                        npos = lo
                     with self._lock:
-                        self._scan_pos = pos
+                        self._scan_pos = npos
+
+    def _scan_lock(self, mhz, over, name):
+        """Lock (dwell) on an active signal during auto-seek, log the hit."""
+        now = time.time()
+        with self._lock:
+            self._scan_locked = True
+            self._scan_lock_t = now
+            self._scan_active_t = now
+            entry = {"mhz": mhz, "over": round(float(over), 1), "t": self._scan_n}
+            if name:
+                entry["name"] = name
+            self._scan_log.insert(0, entry)
+            self._scan_log = self._scan_log[:30]
+
+    def _scan_resume_due(self, over, squelch, cfg):
+        """In auto mode, decide whether the dwell on a locked signal is over and
+        we should resume seeking — after the max dwell time, OR once the signal
+        has gone quiet for ~1 s (so brief transmissions release quickly while a
+        constant carrier like an FM station is held for the full dwell)."""
+        now = time.time()
+        if over >= squelch:
+            self._scan_active_t = now
+        dwell = cfg.get("dwell_s", 3.0)
+        return (now - self._scan_lock_t) > dwell or (now - self._scan_active_t) > 1.0
 
     def _channel_active(self, center_hz, sr, half_bw):
         """Return dB of the strongest carrier within ±half_bw of a channel centre,
@@ -765,7 +800,7 @@ class RFSensor(Sensor):
         peak = float(np.max(window)) if window.size else float(np.max(pdb))
         return peak - floor
 
-    def _set_scan_state(self, cfg, pos, over, locked):
+    def _set_scan_state(self, cfg, pos, over, locked, auto=True):
         with self._lock:
             self._scan_n += 1
             self._scan_cur = {
@@ -776,7 +811,7 @@ class RFSensor(Sensor):
                 "squelch_db": self._scan_cfg["squelch_db"],
                 "freq_mhz": round(pos / 1e6, 4),
                 "over_db": (None if over is None else round(float(over), 1)),
-                "locked": bool(locked), "auto": True,
+                "locked": bool(locked), "auto": bool(auto),
                 "ch_name": None, "idx": None, "total": None,
                 "log": list(self._scan_log),
                 "audio_rate": self._audio_rate,
@@ -915,11 +950,11 @@ class RFSensor(Sensor):
                     "points": list(self._spectrum)}
 
     def _scan_listening(self):
-        """True when the scanner is producing audio: auto-locked on a signal, OR
-        manually parked on a channel (manual flip always listens)."""
+        """True when the scanner is producing audio: manual HOLD (always listens,
+        sweep or channels), or auto mode while dwelling on a locked signal."""
         if self._mode != "scan":
             return False
-        if self._scan_cfg.get("kind") == "channels" and not self._scan_auto:
+        if not self._scan_auto:
             return True
         return bool(self._scan_locked)
 
