@@ -20,9 +20,11 @@ communications, and it never attacks anything (no exploitation, just observation
 and a port knock).
 """
 
+import os
 import socket
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
 
@@ -90,6 +92,18 @@ DEFAULT_CRED_HINTS = {
     "dahua": "Dahua DVRs/cameras had default admin/admin — verify it was changed.",
     "tp-link": "Some TP-Link gear ships admin/admin — verify the admin password.",
 }
+
+
+def service_note(port, service=""):
+    """One-line plain-English note on a service + whether it should be exposed."""
+    if port in RISK:
+        return RISK[port][1]
+    if port in CAMERA_PORTS:
+        return CAMERA_PORTS[port] + " — a camera/recorder service; lock it down and isolate it."
+    name, enc = PORTS.get(port, (service or "service", False))
+    if enc:
+        return name + " — encrypted; fine, just keep credentials strong."
+    return name + " — usually OK on a trusted LAN; close it if you don't use it."
 
 
 # ----------------------------- port scanning --------------------------------
@@ -185,6 +199,146 @@ def assess_device(ip, vendor, open_ports):
         "learn": learn,
         "scanned": True,
     }
+
+
+# ============================ nmap integration ==============================
+# Professional scanning/enumeration. RECON + ASSESSMENT only — selectable scan
+# types, NSE *safe/default* discovery scripts (never brute/intrusion), service &
+# version detection, OS fingerprint, host discovery. Own/authorised targets only.
+def nmap_tool():
+    p = shutil.which("nmap")
+    if p:
+        return p
+    for c in (r"C:\Program Files (x86)\Nmap\nmap.exe", r"C:\Program Files\Nmap\nmap.exe"):
+        if os.path.exists(c):
+            return c
+    return None
+
+
+def nmap_status():
+    tool = nmap_tool()
+    if tool:
+        ver = ""
+        try:
+            ver = subprocess.run([tool, "--version"], capture_output=True, text=True,
+                                 errors="replace", timeout=8).stdout.splitlines()[0]
+        except Exception:
+            pass
+        return {"available": True, "tool": tool, "version": ver}
+    return {"available": False, "tool": None,
+            "needs": ["Nmap (winget: Insecure.Nmap, or https://nmap.org/download.html)"],
+            "how": ("Install Nmap (it uses the Npcap you already have). winget: "
+                    "'winget install Insecure.Nmap'. Then restart SENTRY — the advanced "
+                    "scans (service/version, OS, NSE safe scripts, full port + host "
+                    "discovery) activate. Until then, SENTRY's built-in pure-Python port "
+                    "scan still works.")}
+
+
+# scan_type -> (nmap args, needs_admin, human label, what-it-does)
+NMAP_SCANS = {
+    "discovery": (["-sn"], False, "Host discovery (subnet sweep)",
+                  "Finds every live host on the subnet (ping/ARP sweep) — a full inventory, no port scan."),
+    "quick":     (["-sT", "-F", "-sV", "--version-light"], False, "Quick scan",
+                  "Connect-scans the top 100 ports with light service detection — fast overview."),
+    "version":   (["-sT", "-sV"], False, "Service / version (-sV)",
+                  "Identifies the exact software + version behind each open port."),
+    "scripts":   (["-sT", "-sV", "--script", "default,safe"], False, "NSE safe scripts",
+                  "Runs nmap's default + safe discovery scripts to enumerate services (no brute/intrusion)."),
+    "ports":     (["-sT", "-p-", "--open"], False, "Full port scan (all 65535)",
+                  "Connect-scans every TCP port — thorough but slow."),
+    "os":        (["-sT", "-O", "-sV"], True, "OS fingerprint (-O)",
+                  "Guesses the operating system from network behaviour (needs admin for raw packets)."),
+    "aggressive":(["-A"], True, "Aggressive (-A)",
+                  "OS + version + default scripts + traceroute in one (needs admin)."),
+}
+
+
+def nmap_scan(target, scan_type="quick", timeout=300):
+    """Run nmap on an OWN/authorised target and return structured results
+    (hosts, ports, services, versions, OS guesses, NSE script output). Refuses
+    non-private targets. Returns needs_install if nmap isn't present."""
+    tool = nmap_tool()
+    if not tool:
+        return {"ok": False, "needs_install": True, "error": "nmap is not installed.",
+                "status": nmap_status()}
+    target = str(target or "").strip()
+    # allow a single private host or a private CIDR (e.g. 192.168.1.0/24)
+    host = target.split("/")[0]
+    if not _is_private(host):
+        return {"ok": False, "error": "Only private/LAN targets (your own network) are "
+                                      "allowed — public addresses are refused.", "target": target}
+    spec = NMAP_SCANS.get(scan_type, NMAP_SCANS["quick"])
+    args, needs_admin, label, what = spec
+    cmd = [tool, "-oX", "-", "-T4", "--host-timeout", "120s"] + args + [target]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                              timeout=timeout)
+        xml = proc.stdout
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": f"nmap timed out after {timeout}s — try a smaller "
+                                      "scan (Quick) or a single host.", "target": target}
+    except Exception as e:
+        return {"ok": False, "error": f"nmap failed: {e}", "target": target}
+    parsed = _parse_nmap_xml(xml)
+    parsed.update({"ok": True, "target": target, "scan_type": scan_type, "label": label,
+                   "what": what, "needs_admin": needs_admin})
+    if needs_admin and not any(h.get("os") for h in parsed.get("hosts", [])):
+        parsed["admin_note"] = ("OS/aggressive detection needs raw-packet (admin) access — "
+                                "run SENTRY's server elevated for full results.")
+    return parsed
+
+
+def _parse_nmap_xml(xml):
+    hosts = []
+    try:
+        root = ET.fromstring(xml)
+    except Exception:
+        return {"hosts": [], "summary": "no parseable nmap output"}
+    for h in root.findall("host"):
+        st = h.find("status")
+        if st is not None and st.get("state") != "up":
+            continue
+        addr = ""
+        mac = ""
+        vendor = ""
+        for a in h.findall("address"):
+            if a.get("addrtype") == "ipv4":
+                addr = a.get("addr", "")
+            elif a.get("addrtype") == "mac":
+                mac = a.get("addr", ""); vendor = a.get("vendor", "")
+        hn = h.find("hostnames/hostname")
+        hostname = hn.get("name", "") if hn is not None else ""
+        ports = []
+        for p in h.findall("ports/port"):
+            state = p.find("state")
+            if state is None or state.get("state") != "open":
+                continue
+            svc = p.find("service")
+            sname = svc.get("name", "") if svc is not None else ""
+            product = svc.get("product", "") if svc is not None else ""
+            version = svc.get("version", "") if svc is not None else ""
+            extra = svc.get("extrainfo", "") if svc is not None else ""
+            scripts = [{"id": s.get("id", ""), "output": (s.get("output", "") or "").strip()[:400]}
+                       for s in p.findall("script")]
+            ports.append({
+                "port": int(p.get("portid", 0)), "proto": p.get("protocol", "tcp"),
+                "service": sname, "product": product, "version": version, "extra": extra,
+                "note": service_note(int(p.get("portid", 0)), sname),
+                "scripts": scripts,
+            })
+        osmatch = ""
+        osacc = ""
+        om = h.find("os/osmatch")
+        if om is not None:
+            osmatch = om.get("name", ""); osacc = om.get("accuracy", "")
+        hscripts = [{"id": s.get("id", ""), "output": (s.get("output", "") or "").strip()[:400]}
+                    for s in h.findall("hostscript/script")]
+        hosts.append({"ip": addr, "mac": mac, "vendor": vendor, "hostname": hostname,
+                      "ports": ports, "os": osmatch, "os_accuracy": osacc,
+                      "host_scripts": hscripts})
+    rs = root.find("runstats/finished")
+    summary = rs.get("summary", "") if rs is not None else ""
+    return {"hosts": hosts, "summary": summary, "host_count": len(hosts)}
 
 
 # ------------------------- live capture (tshark) ----------------------------

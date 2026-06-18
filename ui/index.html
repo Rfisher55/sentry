@@ -341,8 +341,31 @@
   <!-- NETWORK INSPECTOR + SECURITY LAB (your own network only) -->
   <div class="view" id="network">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
-      <div class="gridhd">Network Inspector &amp; Security Lab · <b style="color:var(--amber)">YOUR OWN network/devices only</b> — active port scan (authorised networks only)</div>
+      <div class="gridhd">Network Inspector &amp; Security Assessment Toolkit</div>
+      <div style="font-family:'Spline Sans Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
+        ⚠ <b>AUTHORIZATION:</b> These tools (nmap, tshark, port/web scans, IDS) are for networks &amp; devices you OWN or are explicitly AUTHORIZED to test. They do recon, assessment, detection &amp; hardening guidance only — no exploitation, no break-in, no credential cracking, no capturing other people's content. Scanning others is illegal.
+      </div>
       <div id="netCapture" style="font-family:'Spline Sans Mono';font-size:11px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px;color:var(--dim)"></div>
+      <!-- ADVANCED SCAN (nmap) -->
+      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px 11px">
+        <div id="netNmapStatus" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dim);margin-bottom:7px">Checking nmap…</div>
+        <div id="netNmapControls" style="display:none;flex-wrap:wrap;gap:7px;align-items:center;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+          <span style="color:var(--cyan);font-weight:600">TARGET</span>
+          <input id="netNmapTarget" type="text" placeholder="192.168.1.1 or 192.168.1.0/24" style="width:185px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 7px;font-family:inherit;font-size:11px">
+          <select id="netNmapType" style="background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 6px;font-family:inherit;font-size:11px">
+            <option value="quick">Quick (top 100 + version)</option>
+            <option value="version">Service / version (-sV)</option>
+            <option value="scripts">NSE safe scripts</option>
+            <option value="ports">Full port scan (all 65535)</option>
+            <option value="os">OS fingerprint (-O, needs admin)</option>
+            <option value="aggressive">Aggressive (-A, needs admin)</option>
+            <option value="discovery">Host discovery (subnet sweep)</option>
+          </select>
+          <button id="netNmapBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">▶ RUN NMAP</button>
+          <span id="netNmapWhat" style="color:var(--dimmer);font-size:10px;width:100%"></span>
+        </div>
+        <div id="netNmapResult" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:8px"></div>
+      </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
         <span style="color:var(--cyan);font-weight:600">SCAN AN IP</span>
         <input id="netIp" type="text" placeholder="192.168.1.1" style="width:130px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 7px;font-family:inherit;font-size:11px">
@@ -1580,15 +1603,71 @@ function netRenderTraffic(s){
   }
   el.innerHTML=h;
 }
+const NMAP_WHAT={quick:"Connect-scans the top 100 ports with light version detection — fast.",
+  version:"Identifies the exact software + version on each open port.",
+  scripts:"Runs nmap's default+safe discovery scripts (no brute/intrusion).",
+  ports:"Connect-scans all 65535 TCP ports — thorough but slow (minutes).",
+  os:"Guesses the OS from network behaviour (needs admin/raw packets).",
+  aggressive:"OS + version + scripts + traceroute (needs admin).",
+  discovery:"Sweeps the subnet for every live host — full inventory."};
+function netRenderNmapStatus(){
+  const el=$('netNmapStatus'), ctl=$('netNmapControls'); if(!el) return;
+  const s=B._net_nmap;
+  if(!s){ el.textContent='Checking nmap…'; return; }
+  if(s.available){
+    el.innerHTML='<span style="color:var(--clear)">● ADVANCED SCANNING (nmap) ready</span> <span style="color:var(--dimmer)">'+(s.version||'')+'</span>';
+    if(ctl) ctl.style.display='flex';
+    const tgt=$('netNmapTarget'); if(tgt&&!tgt.value){ const g=(netLanDevices()[0]||{}).ip; tgt.value=g||''; }
+    const ty=$('netNmapType'); if(ty&&!ty._wired){ ty._wired=true; ty.onchange=()=>{const w=$('netNmapWhat'); if(w)w.textContent=NMAP_WHAT[ty.value]||'';}; }
+    const w=$('netNmapWhat'); if(w&&ty) w.textContent=NMAP_WHAT[ty.value]||'';
+  } else {
+    el.innerHTML='<span style="color:var(--amber)">○ nmap not installed</span> — the built-in port scan below still works. To unlock service/version, OS fingerprint, NSE safe scripts &amp; host discovery: <b>'+(s.needs||[]).join('</b>, <b>')+'</b>.<br><span style="color:var(--dimmer)">'+(s.how||'')+'</span>';
+    if(ctl) ctl.style.display='none';
+  }
+}
+function netNmapRun(){
+  const tgt=(($('netNmapTarget')||{}).value||'').trim(); if(!tgt) return;
+  const ty=($('netNmapType')||{}).value||'quick';
+  const el=$('netNmapResult'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ nmap '+ty+' on '+tgt+' … (can take 20s–minutes; full scans are slow)</span>';
+  const b=$('netNmapBtn'); if(b){ b.disabled=true; b.textContent='◌ scanning…'; }
+  rfSend({cmd:'net_nmap_scan', target:tgt, scan_type:ty});
+}
+function netRenderNmap(r){
+  const b=$('netNmapBtn'); if(b){ b.disabled=false; b.textContent='▶ RUN NMAP'; }
+  const el=$('netNmapResult'); if(!el) return;
+  if(!r||!r.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((r&&r.error)||'scan failed')+'</span>'+(r&&r.admin_note?'<br><span style="color:var(--dimmer)">'+r.admin_note+'</span>':''); return; }
+  let h='<div style="color:var(--ink)"><b>'+r.label+'</b> on '+r.target+' — '+r.host_count+' host'+(r.host_count===1?'':'s')+' up'
+    +' <span style="color:var(--dimmer)">'+(r.summary||'')+'</span></div>';
+  if(r.admin_note) h+='<div style="color:var(--amber);font-size:10px;margin:3px 0">'+r.admin_note+'</div>';
+  (r.hosts||[]).slice(0,30).forEach(ho=>{
+    h+='<div style="border-top:1px solid #1b232c;margin-top:6px;padding-top:5px">'
+      +'<b style="color:var(--clear)">'+ho.ip+'</b>'+(ho.hostname?' · '+ho.hostname:'')+(ho.vendor?' · '+ho.vendor:'')
+      +(ho.os?' · <span style="color:var(--cyan)">OS: '+ho.os+' ('+ho.os_accuracy+'%)</span>':'')+'</div>';
+    (ho.ports||[]).forEach(p=>{
+      const enc = p.port===443||p.port===22||p.port===8443;
+      h+='<div style="padding-left:8px;font-size:10.5px"><span style="color:'+(enc?'#3FB984':'#F2A93B')+'">'+p.port+'/'+p.proto+'</span> '
+        +'<b style="color:var(--ink)">'+p.service+'</b> '+(p.product?p.product:'')+' '+(p.version?p.version:'')
+        +' <span style="color:var(--dimmer)">— '+p.note+'</span>';
+      (p.scripts||[]).forEach(s=>{ if(s.output) h+='<div style="padding-left:10px;color:var(--dim);font-size:10px">↳ '+s.id+': '+s.output.replace(/</g,'&lt;').slice(0,200)+'</div>'; });
+      h+='</div>';
+    });
+    (ho.host_scripts||[]).forEach(s=>{ if(s.output) h+='<div style="padding-left:8px;color:var(--dim);font-size:10px">↳ '+s.id+': '+s.output.replace(/</g,'&lt;').slice(0,200)+'</div>'; });
+    if(!(ho.ports||[]).length && r.scan_type!=='discovery') h+='<div style="padding-left:8px;color:var(--clear);font-size:10.5px">No open ports found — minimal exposure ✓</div>';
+  });
+  el.innerHTML=h;
+}
 function netWire(){
   if(_netWired)return; _netWired=true;
+  const nb=$('netNmapBtn'); if(nb) nb.onclick=netNmapRun;
+  const nt=$('netNmapTarget'); if(nt) nt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();netNmapRun();} });
   const b=$('netScanBtn'), ip=$('netIp');
   if(b) b.onclick=()=>netScan();
   if(ip) ip.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();netScan();} });
 }
 function startNetwork(){
-  netWire(); B._net_capture=B._net_capture||null; netRenderCapture(); netBuildDevList();
+  netWire(); B._net_capture=B._net_capture||null; netRenderCapture(); netRenderNmapStatus(); netBuildDevList();
   rfSend({cmd:'net_capture_status'});
+  rfSend({cmd:'net_nmap_status'});
 }
 
 
@@ -2074,6 +2153,8 @@ function connectBackend(){
       if(msg && msg.type==='net_capture'){ B._net_capture=msg.status; if(typeof netRenderCapture==='function') netRenderCapture(); return; }
       if(msg && msg.type==='net_scan'){ if(typeof netRenderReport==='function') netRenderReport(msg.report); return; }
       if(msg && msg.type==='net_traffic'){ if(typeof netRenderTraffic==='function') netRenderTraffic(msg.summary); return; }
+      if(msg && msg.type==='net_nmap_status'){ B._net_nmap=msg.status; if(typeof netRenderNmapStatus==='function') netRenderNmapStatus(); return; }
+      if(msg && msg.type==='net_nmap'){ if(typeof netRenderNmap==='function') netRenderNmap(msg.result); return; }
       if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
       if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){

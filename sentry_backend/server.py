@@ -405,6 +405,21 @@ async def _serve(station):
                                 await ws.send(json.dumps({"type": "net_traffic", "summary": summary}))
                             except Exception:
                                 pass
+                        elif cn == "net_nmap_status":
+                            try:
+                                await ws.send(json.dumps({"type": "net_nmap_status",
+                                                          "status": inspector.nmap_status()}))
+                            except Exception:
+                                pass
+                        elif cn == "net_nmap_scan":
+                            tgt = cmd.get("target")
+                            stype = cmd.get("scan_type", "quick")
+                            # nmap can run for a while — keep it off the event loop
+                            res = await asyncio.to_thread(inspector.nmap_scan, tgt, stype)
+                            try:
+                                await ws.send(json.dumps({"type": "net_nmap", "result": res}))
+                            except Exception:
+                                pass
             except Exception:
                 pass
 
