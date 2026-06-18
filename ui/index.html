@@ -345,6 +345,15 @@
       <div style="font-family:'Spline Sans Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
         ⚠ <b>AUTHORIZATION:</b> These tools (nmap, tshark, port/web scans, IDS) are for networks &amp; devices you OWN or are explicitly AUTHORIZED to test. They do recon, assessment, detection &amp; hardening guidance only — no exploitation, no break-in, no credential cracking, no capturing other people's content. Scanning others is illegal.
       </div>
+      <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px">
+        <span style="color:var(--cyan);font-weight:600">WORKFLOW</span>
+        <button id="netAlertsBtn" style="background:#13242b;color:var(--amber);border:1px solid #5a4416;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">🔔 ALERTS CENTER</button>
+        <button id="netReportBtn" style="background:#13242b;color:var(--clear);border:1px solid #244a3a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">📋 REPORT (CSV / print)</button>
+        <button id="netSnapBtn" style="background:#13242b;color:var(--cyan);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">📸 SNAPSHOT</button>
+        <button id="netDiffBtn" style="background:#13242b;color:var(--cyan);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">🔀 COMPARE</button>
+        <button id="netExplainBtn" style="background:#13242b;color:var(--dim);border:1px solid #25303a;border-radius:5px;padding:4px 10px;cursor:pointer;font-family:inherit;font-size:11px">📖 EXPLAIN</button>
+      </div>
+      <div id="netWorkflow" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer)"></div>
       <div id="netCapture" style="font-family:'Spline Sans Mono';font-size:11px;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px;color:var(--dim)"></div>
       <!-- ADVANCED SCAN (nmap) -->
       <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:10px 11px">
@@ -1709,6 +1718,89 @@ function netArpRun(){
   const el=$('netArpResult'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Reading ARP table…</span>';
   rfSend({cmd:'net_arp_audit'});
 }
+// ---- WORKFLOW: alerts center, report, change-tracking, explain ----
+function netGatherFindings(){
+  // unify every signal we have into one list: {sev, src, what}
+  const L=B._net_last||{}, out=[];
+  (B.devices||[]).filter(d=>d.is_new&&d.channel==='network').forEach(d=>out.push({sev:'medium',src:'new-device',what:'New device on the network: '+(d.ip||'')+' '+(d.maker||d.device_type||'')}));
+  ((L.traffic||{}).ids||[]).forEach(a=>out.push({sev:a.severity,src:'IDS',what:a.what}));
+  ((L.arp||{}).findings||[]).filter(f=>f.severity!=='info').forEach(f=>out.push({sev:f.severity,src:'ARP',what:f.what}));
+  ((L.nmap||{}).hosts||[]).forEach(h=>(h.vulns||[]).forEach(v=>out.push({sev:v.severity,src:'vuln '+h.ip,what:v.id+' — '+v.what})));
+  ((L.nmap||{}).hosts||[]).forEach(h=>{ if(h.risk&&(h.risk.label==='high'||h.risk.label==='critical')) out.push({sev:h.risk.label,src:'risk',what:h.ip+' exposure '+h.risk.score+'/'+h.risk.label}); });
+  ((L.scan||{}).findings||[]).forEach(f=>out.push({sev:f.severity,src:'port '+(L.scan.ip||''),what:f.what}));
+  ((L.web||{}).findings||[]).filter(f=>f.severity!=='info'&&f.severity!=='low').forEach(f=>out.push({sev:f.severity,src:'web',what:f.what}));
+  const rk={critical:0,high:1,medium:2,low:3,info:4};
+  out.sort((a,b)=>(rk[a.sev]??5)-(rk[b.sev]??5));
+  return out;
+}
+function netAlerts(){
+  const el=$('netWorkflow'); if(!el) return;
+  const f=netGatherFindings();
+  let h='<div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px"><span style="color:var(--amber)">🔔 Alerts center</span> <span style="color:var(--dimmer)">— unified new-device / IDS / ARP / vuln / risk alerts from the scans you\'ve run</span>';
+  if(!f.length){ h+='<div style="color:var(--clear);margin-top:4px">No alerts from the data gathered so far. Run a scan / capture / ARP check to populate. ✓</div>'; }
+  else f.slice(0,30).forEach(a=>{ const c=RSKCOL[a.sev]||'#888'; h+='<div style="font-size:10.5px;margin-top:3px"><b style="color:'+c+'">'+a.sev.toUpperCase()+'</b> <span style="color:var(--dimmer)">['+a.src+']</span> '+a.what+'</div>'; });
+  h+='</div>'; el.innerHTML=h;
+}
+function netReport(){
+  const f=netGatherFindings(), L=B._net_last||{};
+  const ts=new Date().toISOString();
+  // CSV
+  let csv='SENTRY network assessment,'+ts+'\nseverity,source,finding\n';
+  f.forEach(a=>csv+='"'+a.sev+'","'+a.src+'","'+(a.what||'').replace(/"/g,"'")+'"\n');
+  const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='sentry-assessment-'+ts.slice(0,10)+'.csv'; a.click(); URL.revokeObjectURL(url);
+  // printable report (user can Save as PDF)
+  const w=window.open('','_blank'); if(w){
+    let rows=f.map(x=>'<tr><td style="color:'+(RSKCOL[x.sev]||'#888')+'"><b>'+x.sev.toUpperCase()+'</b></td><td>'+x.src+'</td><td>'+x.what+'</td></tr>').join('');
+    w.document.write('<html><head><title>SENTRY assessment</title><style>body{font-family:system-ui;margin:30px;color:#111}h1{font-size:20px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px;font-size:13px;text-align:left}small{color:#666}</style></head><body>'
+      +'<h1>SENTRY — Network Security Assessment</h1><small>Generated '+ts+' · OWN/AUTHORIZED network only · recon &amp; assessment (no exploitation)</small>'
+      +'<p>'+f.length+' findings across the scans run this session.</p>'
+      +'<table><tr><th>Severity</th><th>Source</th><th>Finding</th></tr>'+(rows||'<tr><td colspan=3>No findings recorded.</td></tr>')+'</table>'
+      +'<p><small>Version-based vulnerability awareness — confirm against vendor advisories. This report summarizes metadata and configuration exposure; it contains no captured message content.</small></p>'
+      +'<script>setTimeout(function(){window.print()},300)<\/script></body></html>'); w.document.close();
+  }
+  const el=$('netWorkflow'); if(el) el.innerHTML='<div style="color:var(--clear)">📋 Report: CSV downloaded ('+f.length+' findings) and a printable report opened — use your browser\'s "Save as PDF".</div>';
+}
+function netSnapshot(){
+  const L=B._net_last||{}, snap={};
+  ((L.nmap||{}).hosts||[]).forEach(h=>{ snap[h.ip]=(h.ports||[]).map(p=>p.port).sort((a,b)=>a-b); });
+  if((L.scan||{}).ip) snap[L.scan.ip]=(L.scan.open_ports||[]);
+  (B.devices||[]).filter(d=>d.channel==='network'&&d.ip).forEach(d=>{ if(!(d.ip in snap)) snap[d.ip]=snap[d.ip]||[]; });
+  B._net_snap={t:Date.now(), hosts:snap};
+  const el=$('netWorkflow'); if(el) el.innerHTML='<div style="color:var(--cyan)">📸 Snapshot saved: '+Object.keys(snap).length+' hosts / their open ports. Re-scan later and hit COMPARE to see what changed (new device/port = growing attack surface).</div>';
+}
+function netCompare(){
+  const el=$('netWorkflow'); if(!el) return;
+  if(!B._net_snap){ el.innerHTML='<span style="color:var(--amber)">Take a 📸 SNAPSHOT first, then run scans and COMPARE.</span>'; return; }
+  const old=B._net_snap.hosts, L=B._net_last||{}, now={};
+  ((L.nmap||{}).hosts||[]).forEach(h=>{ now[h.ip]=(h.ports||[]).map(p=>p.port).sort((a,b)=>a-b); });
+  if((L.scan||{}).ip) now[L.scan.ip]=(L.scan.open_ports||[]);
+  (B.devices||[]).filter(d=>d.channel==='network'&&d.ip).forEach(d=>{ if(!(d.ip in now)) now[d.ip]=now[d.ip]||[]; });
+  let changes=[];
+  Object.keys(now).forEach(ip=>{ if(!(ip in old)) changes.push({sev:'medium',what:'NEW host since snapshot: '+ip});
+    else { const added=(now[ip]||[]).filter(p=>(old[ip]||[]).indexOf(p)<0); if(added.length) changes.push({sev:'medium',what:ip+': NEW open port(s) '+added.join(', ')}); } });
+  Object.keys(old).forEach(ip=>{ if(!(ip in now)) changes.push({sev:'info',what:'host gone since snapshot: '+ip}); });
+  let h='<div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px"><span style="color:var(--cyan)">🔀 Change since snapshot ('+Math.round((Date.now()-B._net_snap.t)/1000)+'s ago)</span>';
+  if(!changes.length) h+='<div style="color:var(--clear);margin-top:3px">No attack-surface change — same hosts &amp; ports. ✓</div>';
+  else changes.forEach(c=>h+='<div style="font-size:10.5px;margin-top:3px"><b style="color:'+(RSKCOL[c.sev]||'#888')+'">'+c.sev.toUpperCase()+'</b> '+c.what+'</div>');
+  h+='</div>'; el.innerHTML=h;
+}
+const NET_EXPLAIN=[
+  ['Port scan / nmap','An open port is a door — a running service reachable on the network. nmap knocks on each (a normal TCP handshake) to see which answer, then -sV fingerprints the exact software+version. A pro reads it as "attack surface": fewer open ports = less to attack. Unexpected open ports are the first thing to investigate.'],
+  ['Service / version + CVE','The version string is gold: it maps to known vulnerabilities. SENTRY matches it to a curated list (awareness, not a live exploit). A pro confirms against the vendor advisory, then patches or isolates — outdated exposed software is the #1 real-world entry point.'],
+  ['Web check','Routers/IoT admin pages leak clues: the Server header reveals software/version, missing security headers invite clickjacking/injection, and exposed files (.git, backups, /admin) can hand over the keys. A pro checks these before anything heavier.'],
+  ['Live traffic','Metadata tells the story without reading content: which device talks to whom, how much, encrypted or in the clear. The phone-home map shows where your IoT "calls home." A pro hunts for plaintext logins and devices contacting unexpected hosts.'],
+  ['ARP / MITM','On a LAN, ARP maps IP↔MAC with no authentication, so an attacker can claim to be your gateway and sit in the middle. The tell: one MAC owning several IPs. A pro treats a duplicated gateway MAC as an active man-in-the-middle until proven otherwise.'],
+  ['IDS / anomaly','Intrusion detection watches for patterns: one host touching many ports = a scan; a device suddenly contacting dozens of external hosts = possible scanning/exfil. A pro baselines "normal" first, then investigates deviations.'],
+];
+function netExplain(){
+  const el=$('netWorkflow'); if(!el) return;
+  if(el._explained){ el.innerHTML=''; el._explained=false; return; }
+  el._explained=true;
+  let h='<div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px"><span style="color:var(--cyan)">📖 Explain mode — how a pro reads each tool</span>';
+  NET_EXPLAIN.forEach(e=>h+='<div style="margin-top:5px"><b style="color:var(--ink)">'+e[0]+'</b><div style="color:var(--dim);font-size:10.5px">'+e[1]+'</div></div>');
+  h+='</div>'; el.innerHTML=h;
+}
 function netRenderArp(a){
   const el=$('netArpResult'); if(!el) return;
   if(!a||!a.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((a&&a.error)||'ARP check failed')+'</span>'; return; }
@@ -1721,6 +1813,11 @@ function netWire(){
   if(_netWired)return; _netWired=true;
   const ab=$('netArpBtn'); if(ab) ab.onclick=netArpRun;
   const nb=$('netNmapBtn'); if(nb) nb.onclick=netNmapRun;
+  const al=$('netAlertsBtn'); if(al) al.onclick=netAlerts;
+  const rp=$('netReportBtn'); if(rp) rp.onclick=netReport;
+  const sn=$('netSnapBtn'); if(sn) sn.onclick=netSnapshot;
+  const df=$('netDiffBtn'); if(df) df.onclick=netCompare;
+  const ex=$('netExplainBtn'); if(ex) ex.onclick=netExplain;
   const nt=$('netNmapTarget'); if(nt) nt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();netNmapRun();} });
   const b=$('netScanBtn'), ip=$('netIp');
   if(b) b.onclick=()=>netScan();
@@ -2213,12 +2310,12 @@ function connectBackend(){
       if(msg && msg.type==='rf_tuned'){ B._rf_tuned=msg.tuned; return; }
       if(msg && msg.type==='rf_scan'){ B._rf_scan=msg.scan; return; }
       if(msg && msg.type==='net_capture'){ B._net_capture=msg.status; if(typeof netRenderCapture==='function') netRenderCapture(); return; }
-      if(msg && msg.type==='net_scan'){ if(typeof netRenderReport==='function') netRenderReport(msg.report); return; }
-      if(msg && msg.type==='net_traffic'){ if(typeof netRenderTraffic==='function') netRenderTraffic(msg.summary); return; }
+      if(msg && msg.type==='net_scan'){ (B._net_last=B._net_last||{}).scan=msg.report; if(typeof netRenderReport==='function') netRenderReport(msg.report); return; }
+      if(msg && msg.type==='net_traffic'){ (B._net_last=B._net_last||{}).traffic=msg.summary; if(typeof netRenderTraffic==='function') netRenderTraffic(msg.summary); return; }
       if(msg && msg.type==='net_nmap_status'){ B._net_nmap=msg.status; if(typeof netRenderNmapStatus==='function') netRenderNmapStatus(); return; }
-      if(msg && msg.type==='net_nmap'){ if(typeof netRenderNmap==='function') netRenderNmap(msg.result); return; }
-      if(msg && msg.type==='net_web'){ if(typeof netRenderWeb==='function') netRenderWeb(msg.result); return; }
-      if(msg && msg.type==='net_arp'){ if(typeof netRenderArp==='function') netRenderArp(msg.result); return; }
+      if(msg && msg.type==='net_nmap'){ (B._net_last=B._net_last||{}).nmap=msg.result; if(typeof netRenderNmap==='function') netRenderNmap(msg.result); return; }
+      if(msg && msg.type==='net_web'){ (B._net_last=B._net_last||{}).web=msg.result; if(typeof netRenderWeb==='function') netRenderWeb(msg.result); return; }
+      if(msg && msg.type==='net_arp'){ (B._net_last=B._net_last||{}).arp=msg.result; if(typeof netRenderArp==='function') netRenderArp(msg.result); return; }
       if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
       if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){
