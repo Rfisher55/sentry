@@ -236,6 +236,33 @@ class RFSensor(Sensor):
     def available(self) -> bool:
         return _HAS_RTL and np is not None
 
+    def status(self) -> dict:
+        """Honest status. When offline, distinguish 'no dongle' from 'dongle is
+        plugged in but couldn't be opened' (almost always: another app or a second
+        SENTRY instance is holding the single-app tuner)."""
+        st = super().status()
+        if not st.get("online") and not st.get("note"):
+            st["note"] = self._offline_reason()
+        return st
+
+    def _offline_reason(self) -> str:
+        if not (_HAS_RTL and np is not None):
+            return ("RTL-SDR support isn't installed — run 'pip install pyrtlsdr numpy' "
+                    "and install the RTL-SDR USB driver, then re-scan.")
+        n = -1
+        try:
+            from rtlsdr import librtlsdr
+            n = librtlsdr.rtlsdr_get_device_count()
+        except Exception:
+            n = -1
+        if isinstance(n, int) and n > 0:
+            return ("RTL-SDR DETECTED but it couldn't be opened — the tuner is single-app, so "
+                    "another program or a second SENTRY instance is using it. Close the other one "
+                    "(SDR#/HDSDR, or an extra SENTRY window) and re-scan; it will come online.")
+        if n == 0:
+            return "No RTL-SDR found on USB — plug one in (~$45) and RF lights up automatically."
+        return "RTL-SDR is offline."
+
     def _setup(self):
         if self._started:
             return

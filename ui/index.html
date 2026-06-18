@@ -1019,6 +1019,10 @@ const STATUS_LINE={
 // (e.g. an RTL-SDR got plugged in), show LIVE — don't keep saying "needs hardware".
 function sensorOnline(ch){ return (B._sensors||[]).some(s=>s.channel===ch && s.online); }
 function chStatus(id){ return sensorOnline(id) ? 'live' : (CH_STATUS[id]||'planned'); }
+// Prefer the backend's live note when a sensor is offline (it honestly says e.g.
+// "RTL-SDR detected but in use by another app" vs "no dongle — plug one in").
+function sensorNote(ch){ const s=(B._sensors||[]).find(x=>x.channel===ch); return (s&&!s.online&&s.note)?s.note:''; }
+function liveHint(ch,st){ const note=sensorNote(ch); return note || STATUS_LINE[st] || ''; }
 const TOOL_CH={spectrum:'rf',rfbaseline:'rf',burst:'rf',df:'rf',wifi:'wifi',ble:'bluetooth',network:'network'};
 function toolStatus(id){
   const ch=TOOL_CH[id];
@@ -1027,8 +1031,8 @@ function toolStatus(id){
 }
 function statusBadge(st){ const b=STATUS_BADGE[st]||STATUS_BADGE.planned;
   return '<span style="font-family:JetBrains Mono;font-size:8.5px;font-weight:700;letter-spacing:.05em;padding:2px 6px;border-radius:3px;color:'+b.c+';background:'+b.bg+';border:1px solid '+b.c+'66">'+b.t+'</span>'; }
-function statusBanner(st){ if(st==='live') return ''; const b=STATUS_BADGE[st];
-  return '<div style="background:'+b.bg+';border:1px solid '+b.c+'66;color:'+b.c+';padding:9px 11px;border-radius:7px;font-size:11.5px;line-height:1.45;margin-bottom:8px">'+statusBadge(st)+' &nbsp;'+(STATUS_LINE[st]||'')+'</div>'; }
+function statusBanner(st,ch){ if(st==='live') return ''; const b=STATUS_BADGE[st];
+  return '<div style="background:'+b.bg+';border:1px solid '+b.c+'66;color:'+b.c+';padding:9px 11px;border-radius:7px;font-size:11.5px;line-height:1.45;margin-bottom:8px">'+statusBadge(st)+' &nbsp;'+(ch?liveHint(ch,st):(STATUS_LINE[st]||''))+'</div>'; }
 
 function renderToolGrid(){
   $('toolgrid').innerHTML=B.tools.map(t=>{
@@ -1038,7 +1042,7 @@ function renderToolGrid(){
       '<span class="cc">'+statusBadge(st)+'</span></h3>'+
       '<p>'+t.what+'</p>'+
       (live?'<p style="font-size:10.5px;color:var(--dim);margin-top:5px">'+(n>0?n+' detection'+(n===1?'':'s')+' now':'clear right now')+'</p>'
-           :'<p style="font-size:10.5px;color:'+STATUS_BADGE[st].c+';margin-top:5px">'+STATUS_LINE[st]+'</p>')+
+           :'<p style="font-size:10.5px;color:'+STATUS_BADGE[st].c+';margin-top:5px">'+liveHint(TOOL_CH[t.id]||t.channel, st)+'</p>')+
       '<div class="open">Open ›</div></div>';
   }).join('');
   $('toolgrid').querySelectorAll('.card').forEach(c=>c.onclick=()=>openTool(c.dataset.tool));
@@ -1055,7 +1059,7 @@ function renderChannels(){
       '<div style="margin-top:6px">'+statusBadge(st)+'</div>'+
       '<div class="cnt" style="color:'+col+'">'+(live?(n>0?n+' detection'+(n===1?'':'s'):'clear'):'not detecting')+'</div>'+
       '<p>'+c.catches+'</p>'+
-      '<div class="hw">Hardware: '+c.hw+(st!=='live'?' — '+STATUS_LINE[st]:'')+'</div>'+
+      '<div class="hw">Hardware: '+c.hw+(st!=='live'?' — '+liveHint(c.id, st):'')+'</div>'+
       '<div class="open" style="margin-top:8px;font-family:JetBrains Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open ›</div></div>';
   }).join('');
   $('chgrid').querySelectorAll('.chcard').forEach(el=>el.onclick=()=>openChannel(el.dataset.ch));
@@ -1082,7 +1086,7 @@ function openChannel(cid){
   }
   const statusTxt = devs.length ? (devs.length+' detection'+(devs.length===1?'':'s')+' on this channel') : 'Clear — nothing detected';
   $('toolBody').innerHTML=
-    '<div class="tleft">'+statusBanner(st)+'<div class="sidehd" style="color:var(--cyan)">◉ CHANNEL STATUS</div>'+
+    '<div class="tleft">'+statusBanner(st,cid)+'<div class="sidehd" style="color:var(--cyan)">◉ CHANNEL STATUS</div>'+
       '<div class="ablk"><div class="ah" style="color:'+col+'">'+statusTxt+'</div>'+
         '<div class="am" style="margin-top:6px">'+c.catches+'</div></div>'+
       leftRows+'</div>'+
@@ -1123,11 +1127,11 @@ function openTool(id){
     rows='<div class="emptytool">No detections on the '+t.name+' channel right now.<br><br>'+
       '<b>This tool only reads its own channel.</b> Other signal types show under their own tools.</div>';
   } else {
-    rows='<div class="emptytool">This tool is <b>'+STATUS_BADGE[st].t+'</b>.<br><br>'+STATUS_LINE[st]+'</div>';
+    rows='<div class="emptytool">This tool is <b>'+STATUS_BADGE[st].t+'</b>.<br><br>'+liveHint(TOOL_CH[id]||t.channel, st)+'</div>';
   }
 
   $('toolBody').innerHTML=
-    '<div class="tleft">'+statusBanner(st)+'<div class="sidehd" style="color:var(--cyan)">◉ '+t.name.toUpperCase()+' &nbsp;'+statusBadge(st)+'</div>'+
+    '<div class="tleft">'+statusBanner(st,TOOL_CH[id]||t.channel)+'<div class="sidehd" style="color:var(--cyan)">◉ '+t.name.toUpperCase()+' &nbsp;'+statusBadge(st)+'</div>'+
       '<div style="font-size:11px;color:var(--dim)">'+(list.length?(list.length+' detection'+(list.length===1?'':'s')+' on this channel · tap one'):'')+'</div>'+
       rows+
       '<div style="font-size:10.5px;color:var(--dimmer);line-height:1.45;margin-top:6px;border-top:1px solid var(--line);padding-top:8px">'+t.what+
