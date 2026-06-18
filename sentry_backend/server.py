@@ -9,6 +9,7 @@ Run:  python3 -m backend.server
 """
 
 import asyncio
+import base64
 import json
 import time
 import os
@@ -175,6 +176,7 @@ class Fusion:
 class Station:
     def __init__(self):
         self.fusion = Fusion()
+        self.rf = next((s for s in SENSORS if s.channel == "rf"), None)
         self.latest = {"devices": [], "sensors": [], "ts": 0}
         self._cache = {}        # channel -> last list[Detection]
         self._last_scan = {}    # channel -> ts of last actual scan
@@ -264,6 +266,26 @@ class Station:
         backs the UI's instant REFRESH button."""
         self._last_scan = {}
 
+    def rf_command(self, cmd):
+        """Handle a live RF control message from the UI (tuned view / audio).
+        No-ops safely if the RF sensor is offline. Returns a small ack dict."""
+        if not self.rf or not self.rf.status()["online"]:
+            return {"type": "rf_ack", "ok": False, "reason": "RF offline"}
+        c = cmd.get("cmd")
+        try:
+            if c == "rf_tune":
+                self.rf.set_view(center_mhz=cmd.get("center_mhz"),
+                                 span_hz=cmd.get("span_hz"),
+                                 demod=cmd.get("demod"),
+                                 audio=cmd.get("audio"))
+            elif c == "rf_sweep":
+                self.rf.set_sweep()
+            else:
+                return {"type": "rf_ack", "ok": False, "reason": "unknown cmd"}
+        except Exception as e:
+            return {"type": "rf_ack", "ok": False, "reason": str(e)}
+        return {"type": "rf_ack", "ok": True, "cmd": c, "meta": self.rf.view_meta()}
+
     def run_scan_loop(self):
         """Background thread: keep refreshing the fused state forever. Runs off
         the asyncio loop so a blocking sensor scan never stalls the WS feed."""
@@ -279,22 +301,55 @@ async def _serve(station):
     async def handler(ws):
         # push the current state immediately, then push again whenever a new
         # scan tick produces fresh data (detected by its timestamp changing).
+        # Separately, when the RF tuned view is active, stream its live spectrum
+        # (on each new sweep row) and demodulated audio frames promptly.
         async def reader():
             try:
                 async for msg in ws:
-                    if isinstance(msg, str) and msg.strip() == "rescan":
+                    if not isinstance(msg, str):
+                        continue
+                    s = msg.strip()
+                    if s == "rescan":
                         station.force_rescan()
+                        continue
+                    if s.startswith("{"):
+                        try:
+                            cmd = json.loads(s)
+                        except Exception:
+                            continue
+                        if isinstance(cmd, dict) and str(cmd.get("cmd", "")).startswith("rf_"):
+                            ack = station.rf_command(cmd)
+                            try:
+                                await ws.send(json.dumps(ack))
+                            except Exception:
+                                pass
             except Exception:
                 pass
+
         rtask = asyncio.ensure_future(reader())
         try:
             await ws.send(json.dumps(station.latest))
             last_ts = station.latest["ts"]
+            last_rf_n = -1
             while True:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.05)
+                # fused device/sensor state (slow tick)
                 if station.latest["ts"] != last_ts:
                     await ws.send(json.dumps(station.latest))
                     last_ts = station.latest["ts"]
+                # live tuned spectrum + audio (fast) — only while the SDR is tuned
+                rf = station.rf
+                if rf and rf.status()["online"]:
+                    tuned = rf.tuned_state()
+                    if tuned and tuned.get("n") != last_rf_n:
+                        last_rf_n = tuned["n"]
+                        await ws.send(json.dumps({"type": "rf_tuned", "tuned": tuned}))
+                    if tuned and tuned.get("audio"):
+                        rate, frames = rf.pop_audio()
+                        for fr in frames:
+                            await ws.send(json.dumps({
+                                "type": "rf_audio", "rate": rate,
+                                "pcm": base64.b64encode(fr).decode("ascii")}))
         except Exception:
             return
         finally:

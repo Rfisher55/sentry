@@ -1055,9 +1055,70 @@ let sigSpecN=-1;        // RF: last sweep number we added to the waterfall
 
 function rssiToY(r,H){ const s=Math.max(0,Math.min(1,(r+100)/60)); return H*0.82+10-(s*H*0.82); }
 
+// RF spectrum view. Two real sources, both straight from the dongle (no synthesis):
+//   • TUNED  (SDR#-style): user-set centre/span — a true high-res FFT. Used whenever
+//     B._rf_tuned is present (the RF view requests it on open). This is the fix for
+//     the old flat line: a real periodogram shows actual peaks (e.g. FM ~100 MHz).
+//   • SWEEP  (fallback): the slow 25–1750 MHz surveillance sweep (one point/​tune).
+function drawSpectrum(g,W,H,rfDev){
+  if(B._rf_tuned){ drawTunedSpectrum(g,W,H,rfDev); return; }
+  drawSweepSpectrum(g,W,H,rfDev);
+}
+
+// REAL live tuned spectrum from the RTL-SDR (power dB vs frequency across the span).
+function drawTunedSpectrum(g,W,H,rfDev){
+  const t=B._rf_tuned;
+  g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
+  if(!t || !t.points || !t.points.length){
+    drawNoSignal(g,W,H,'TUNING…','RTL-SDR tuning to '+(rfRadio.center)+' MHz — first real FFT in progress.');
+    return;
+  }
+  const pts=t.points, lo=t.low_mhz, hi=t.high_mhz, floor=(t.floor!=null?t.floor:0);
+  const padL=46, padR=10, padT=30, plotW=W-padL-padR;
+  const specH=Math.floor(H*0.50);          // top half = spectrum (waterfall added later)
+  let pmin=floor-6, pmax=(t.peak&&t.peak.db!=null?t.peak.db:floor)+6;
+  if(pmax-pmin<18) pmax=pmin+18;
+  const fx=mhz=>padL+plotW*(mhz-lo)/(hi-lo);
+  const py=db=>padT+(specH-padT-6)*(1-Math.max(0,Math.min(1,(db-pmin)/(pmax-pmin))));
+  // dB grid
+  g.strokeStyle='#1E242C';g.lineWidth=1;g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.textAlign='left';
+  for(let k=0;k<=3;k++){const db=Math.round(pmax-(pmax-pmin)*k/3);const y=py(db);g.beginPath();g.moveTo(padL,y);g.lineTo(W-padR,y);g.stroke();g.fillText(db+'dB',2,y+3);}
+  // noise-floor line
+  const fy=py(floor);g.strokeStyle='#2b6b54';g.setLineDash([3,3]);g.beginPath();g.moveTo(padL,fy);g.lineTo(W-padR,fy);g.stroke();g.setLineDash([]);
+  g.fillStyle='#2b6b54';g.fillText('floor '+floor+'dB',W-padR-78,fy-3);
+  // frequency axis ticks (5 across the span)
+  g.fillStyle='#3a4650';g.textAlign='center';
+  for(let k=0;k<=4;k++){const m=lo+(hi-lo)*k/4;const x=fx(m);g.fillText(m.toFixed(2)+'M',Math.max(padL+14,Math.min(x,W-padR-14)),specH-2);}
+  g.textAlign='left';
+  // FM proof marker
+  if(100>=lo&&100<=hi){const x=fx(100);g.strokeStyle='#2C8C9E';g.setLineDash([2,3]);g.beginPath();g.moveTo(x,padT);g.lineTo(x,specH-12);g.stroke();g.setLineDash([]);g.fillStyle='#2C8C9E';g.fillText('FM',x+2,padT+8);}
+  // REAL spectrum: filled trace
+  g.beginPath();pts.forEach((p,i)=>{const x=fx(p[0]),y=py(p[1]);i?g.lineTo(x,y):g.moveTo(x,y);});
+  g.lineTo(fx(pts[pts.length-1][0]),specH-6);g.lineTo(fx(pts[0][0]),specH-6);g.closePath();
+  g.fillStyle='rgba(72,201,224,0.10)';g.fill();
+  g.strokeStyle='#48C9E0';g.lineWidth=1.2;g.beginPath();
+  pts.forEach((p,i)=>{const x=fx(p[0]),y=py(p[1]);i?g.lineTo(x,y):g.moveTo(x,y);});
+  g.stroke();
+  // peak marker
+  if(t.peak){const x=fx(t.peak.mhz),y=py(t.peak.db);g.fillStyle='#F2A93B';g.beginPath();g.arc(x,y,3,0,7);g.fill();
+    g.fillStyle='#F2A93B';g.font='10px Spline Sans Mono';g.fillText('▲ '+t.peak.mhz.toFixed(3)+' MHz  '+t.peak.db+' dB',Math.min(x+5,W-150),Math.max(padT+10,y-4));}
+  // focused RF device's frequency marker
+  if(rfDev && rfDev.freq_mhz!=null && rfDev.freq_mhz>=lo && rfDev.freq_mhz<=hi){const x=fx(rfDev.freq_mhz);g.strokeStyle='#E5564B';g.lineWidth=1.2;g.beginPath();g.moveTo(x,padT);g.lineTo(x,specH-6);g.stroke();
+    g.fillStyle='#E5564B';g.fillText('▼ '+(+rfDev.freq_mhz).toFixed(2)+' MHz',Math.min(x+3,W-90),padT+22);}
+  // header readout
+  g.textAlign='left';g.fillStyle='#9FB1C2';g.font='600 12px Spline Sans Mono';
+  g.fillText('● LIVE  '+t.center_mhz.toFixed(3)+' MHz  ·  span '+(t.span_hz/1e6).toFixed(2)+' MHz  ·  '+t.demod,padL+2,16);
+  g.textAlign='right';g.fillStyle='#3FB984';g.fillText('peak +'+(t.peak?(t.peak.db-floor).toFixed(0):'0')+' dB over floor  · #'+t.n,W-padR,16);
+  g.textAlign='left';
+  drawTunedWaterfall(g,W,H,t,specH,padL,padR,fx,pmin,pmax);
+}
+
+// scrolling waterfall fed from the live tuned spectrum (added in commit 2)
+function drawTunedWaterfall(g,W,H,t,specH,padL,padR,fx,pmin,pmax){}
+
 // RF: plot the REAL swept spectrum (power vs frequency) from the RTL-SDR, plus a
 // waterfall of past sweeps. No synthesis — points come straight from the device.
-function drawSpectrum(g,W,H,rfDev){
+function drawSweepSpectrum(g,W,H,rfDev){
   const spec=B._rf_spectrum;
   g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
   if(!spec || !spec.points || !spec.points.length){
@@ -1184,7 +1245,7 @@ function drawSignal(){
 
 function signalCaption(cid){
   const m={
-    rf:"Live RF spectrum from the RTL-SDR: real power (dB) across ~25 MHz–1.75 GHz, swept by the tuner. Tall peaks are real transmitters; the waterfall stacks each sweep over time. Shaded strips are the watched ISM/cellular bands; broadcast (FM/TV) shows in the trace too but isn't alarmed on. A full sweep takes ~10 s (scanning receiver, not real-time wideband).",
+    rf:"Live RF spectrum from the RTL-SDR — a REAL high-resolution FFT at the tuned centre (defaults to FM ~98 MHz so you can see real broadcast peaks immediately). Tall peaks are real transmitters. Only one tuner exists, so opening this live view pauses the background surveillance sweep until you exit. Honest limits: ~25 MHz–1.75 GHz only; it can't see 2.4/5 GHz Wi-Fi/Bluetooth, can't tune cellular voice, and never decodes encrypted/digital content.",
     bluetooth:"Live BLE signal strength (RSSI, dBm). Each bar is a device's real current reading; open one device for its trace over time.",
     wifi:"Live Wi-Fi signal strength per access point — Windows' % mapped to ~dBm. Each bar is a real current reading.",
     network:"LAN devices are found by IP/MAC, not radio — there is no RSSI to plot here."
@@ -1228,9 +1289,22 @@ function renderChannelReadout(cid, hasHw, c){
   const fe=$('sigFeed'); if(fe._lastHtml!==html){ fe._lastHtml=html; fe.innerHTML=html; }  // only touch DOM when it actually changed
 }
 
+// Send a live control command to the backend over the open WS (no-op if down).
+function rfSend(obj){ try{ if(liveWs && liveWs.readyState===1) liveWs.send(JSON.stringify(obj)); }catch(e){} }
+// Is the RTL-SDR actually online right now? (controls only make sense if so)
+function rfOnline(){ return (B._sensors||[]).some(s=>s.channel==='rf'&&s.online); }
+// Ask the dongle to tune the live view to the current radio settings.
+function rfTuneNow(){ if(!rfOnline())return; rfSend({cmd:'rf_tune',center_mhz:rfRadio.center,span_hz:rfRadio.span,demod:rfRadio.demod,audio:rfRadio.audio}); }
+// Current tuned-view settings (the SDR# controls drive this).
+let rfRadio={center:98.0, span:2400000, demod:'WFM', audio:false};
+
 function openSignal(cid){
   const c=B.channels.find(x=>x.id===cid); if(!c)return;
   sigDevice=null; sigChannel=cid; sigHist=[]; sigLive=false;
+  // RF channel → drive the dongle into the live tuned view (defaults to FM, the
+  // easy proof point). Only one tuner, so this pauses the surveillance sweep.
+  B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
+  if(cid==='rf' && rfOnline()){ rfRadio.audio=false; rfTuneNow(); }
   const liveSet=new Set((B._sensors||[]).filter(s=>s.online).map(s=>s.channel));
   const hasHw=liveSet.has(cid);
   $('sigTitle').textContent=c.name+' — Live Signal';
@@ -1247,6 +1321,9 @@ function openDeviceSignal(devId){
   const d=B.devices.find(x=>x.id===devId); if(!d)return;
   sigChannel=null; sigDevice=d.id;
   sigHist=(d.rssi!=null?[d.rssi]:[]); sigLive=(d.rssi!=null);
+  // RF device → tune the live view to its frequency so you can see/inspect it.
+  B._rf_tuned=null; sigWaterfall=[]; sigSpecN=-1;
+  if(d.channel==='rf' && rfOnline() && d.freq_mhz!=null){ rfRadio.center=+d.freq_mhz; rfRadio.audio=false; rfTuneNow(); }
   $('sigTitle').textContent=devTitle(d)+' — Live Signal';
   $('sigSub').textContent=(d.rssi!=null?d.rssi+' dBm · ':'no signal · ')+d.ident;
   $('sigCaption').innerHTML='<b style="color:var(--ink)">'+d.maker+(d.model&&d.model!=='—'?' · '+d.model:'')+'</b> · '+d.mac+'<br>'+
@@ -1282,7 +1359,12 @@ function syncDeviceSignal(){
   }
 }
 
-function closeSignal(){ sigDevice=null; sigChannel=null; sigHist=[]; sigLive=false; sigWaterfall=[]; sigSpecN=-1; $('sigOverlay').classList.remove('on'); if(sigRAF){cancelAnimationFrame(sigRAF);sigRAF=null;} }
+function closeSignal(){
+  // leaving the RF view → release the tuner back to the surveillance sweep.
+  if(rfOnline()){ rfRadio.audio=false; if(typeof rfAudioStop==='function') rfAudioStop(); rfSend({cmd:'rf_sweep'}); }
+  B._rf_tuned=null;
+  sigDevice=null; sigChannel=null; sigHist=[]; sigLive=false; sigWaterfall=[]; sigSpecN=-1; $('sigOverlay').classList.remove('on'); if(sigRAF){cancelAnimationFrame(sigRAF);sigRAF=null;}
+}
 
 
 // ---------- WIRE OVERLAY EXITS ----------
@@ -1370,6 +1452,11 @@ function connectBackend(){
   ws.onmessage=ev=>{
     try{
       const msg=JSON.parse(ev.data);
+      // Live RF tuned view (SDR#-style): real spectrum rows + demodulated audio
+      // arrive as their own typed messages, faster than the device-state tick.
+      if(msg && msg.type==='rf_tuned'){ B._rf_tuned=msg.tuned; return; }
+      if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
+      if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){
         liveConnected=true; setConnState(true);   // real data arrived → hide DEMO banner
         _reconnectDelay=1000;                      // healthy feed → reset backoff

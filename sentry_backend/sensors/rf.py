@@ -1,24 +1,32 @@
-"""Real RF detection via RTL-SDR (Stage 2 — the core real-detection sensor).
+"""Real RF detection + live SDR view via RTL-SDR (Stage 2 — the core sensor).
 
-Sweeps the surveillance-relevant ISM / cellular-uplink bands, estimates the
-noise floor, finds peaks that rise above it, and classifies them by band. This
-is the genuine "something is transmitting here" capability. Requires an RTL-SDR
-(pyrtlsdr); reports offline without one.
+This module owns the SINGLE RTL-SDR handle and arbitrates the one tuner between
+two jobs (a dongle can only be used by ONE app at a time):
+
+  * SWEEP mode (default): sweeps the surveillance-relevant ISM / cellular-uplink
+    bands, estimates the noise floor, finds peaks above it, classifies by band.
+    This is the genuine "something is transmitting here" capability.
+
+  * TUNED mode (interactive, SDR#-style): the user picks a centre frequency and a
+    span; we read REAL IQ at that tune and produce a true power-vs-frequency
+    spectrum + waterfall, and (optionally) demodulate WFM/AM/NFM to live audio.
+    While tuned, the background surveillance sweep PAUSES — there's only one tuner.
+
+Requires an RTL-SDR (pyrtlsdr); reports offline without one and degrades
+gracefully. Everything here is REAL receiver data — no synthesis.
 
 HARDWARE & HONEST COVERAGE (Nooelec NESDR / RTL2832U + R820T tuner):
-  * Tunable range ~25 MHz – 1.75 GHz. We only WATCH the bands within that range
-    where bugs/trackers/cheap transmitters live (433/868/915 MHz ISM, cellular
-    uplink). We deliberately SKIP normal broadcast (FM/TV/cellular downlink) so
-    the station isn't flooded with licensed signals it shouldn't alarm on.
-  * It CANNOT see 2.4 GHz / 5 GHz Wi-Fi, Bluetooth, or 5.8 GHz analog video —
-    those are above the tuner's range and are covered by the Wi-Fi/BLE sensors.
-  * It detects ENERGY only — it does not decode/demodulate private content.
-
-The sweep runs in a background thread, so a slow pass never stalls the live feed
-(scan() just returns the latest cached result instantly, like the BLE/LAN sensors).
+  * Tunable range ~25 MHz – 1.75 GHz. The sweep WATCHES only the surveillance
+    bands in that range (433/868/915 MHz ISM, cellular uplink); the tuned view
+    lets you look ANYWHERE in range (e.g. FM broadcast ~100 MHz to prove it works).
+  * It CANNOT see 2.4 GHz / 5 GHz Wi-Fi, Bluetooth, or 5.8 GHz analog video — those
+    are above the tuner's range and are covered by the Wi-Fi/BLE sensors.
+  * It detects/​demodulates ENERGY and OPEN analog modulation (WFM/AM/NFM) only —
+    it does NOT decode encrypted/digital content and cannot tune cellular voice.
 """
 
 from sentry_backend.sensor import Sensor, Detection
+import collections
 import threading
 import time
 
@@ -50,6 +58,14 @@ BANDS = [
      "phone; a GSM/LTE bug also calls out here. Not a bug on its own — identify up close."),
 ]
 
+# Span choices for the tuned view. The RTL2832U only accepts sample rates in
+# 225001–300000 Hz and 900001–3200000 Hz (the 0.3–0.9 MHz gap is invalid), and
+# we keep each span an exact integer multiple of the 48 kHz audio rate so
+# demodulation decimates cleanly. (Hz)
+VALID_SPANS_HZ = [240000, 1200000, 1920000, 2400000]
+AUDIO_RATE = 48000
+DEMODS = ("WFM", "AM", "NFM")
+
 
 class RFSensor(Sensor):
     channel = "rf"
@@ -59,10 +75,14 @@ class RFSensor(Sensor):
     TUNER_LOW_MHZ = 25
     TUNER_HIGH_MHZ = 1750
     STEP_MHZ = 2.4             # tune step across the FULL range (≈ the 2.4 MHz bw)
-    SAMPLE_RATE = 2.4e6
+    SAMPLE_RATE = 2.4e6        # sweep sample rate
     READ_SAMPLES = 16 * 1024   # per tune; smaller keeps a full sweep fast (~10 s)
     PEAK_DB_OVER_FLOOR = 10.0  # first-cut threshold; real-world tuning is ongoing
     SCAN_PERIOD = 0.5          # brief pause between full sweeps (background thread)
+
+    TUNED_GAIN_DB = 30.0       # fixed manual gain for a stable, honest tuned spectrum
+    NFFT = 2048                # FFT size for the tuned periodogram
+    SPEC_BINS = 512            # display points (peak-held down from NFFT)
 
     def __init__(self):
         super().__init__()
@@ -75,6 +95,21 @@ class RFSensor(Sensor):
         self._thread = None
         self._started = False
 
+        # --- tuned (SDR#-style) view state ---
+        self._mode = "sweep"            # "sweep" | "tuned"
+        self._epoch = 0                 # bumps when tuned center/span/gain changes
+        self._applied_epoch = -1        # last epoch the worker configured the radio to
+        self._req = {                   # current tuned request
+            "center_hz": 98_000_000,
+            "span_hz": 2_400_000,
+            "demod": "WFM",
+            "audio": False,
+        }
+        self._tuned = None              # latest tuned spectrum dict for the UI
+        self._tuned_n = 0               # tuned row counter (waterfall)
+        self._audio_q = collections.deque(maxlen=24)  # int16 PCM frames (bytes)
+        self._audio_rate = AUDIO_RATE
+
     def available(self) -> bool:
         return _HAS_RTL and np is not None
 
@@ -85,28 +120,34 @@ class RFSensor(Sensor):
         self.sdr.sample_rate = self.SAMPLE_RATE
         self.sdr.gain = "auto"
         self._note = (
-            "RTL-SDR R820T online — tuner covers ~%d MHz–%.2f GHz. SENTRY watches the "
-            "surveillance ISM/cellular bands in that range (433/868/915 MHz, cellular "
-            "uplink) and flags transmitters there; it skips normal broadcast (FM/TV) to "
-            "avoid false alarms. It CANNOT see 2.4/5 GHz Wi-Fi/Bluetooth/video (above the "
-            "tuner's range — those use the Wi-Fi & BLE sensors) and never decodes content."
+            "RTL-SDR R820T online — tuner covers ~%d MHz–%.2f GHz. SWEEP watches the "
+            "surveillance ISM/cellular bands (433/868/915 MHz, cellular uplink); the live "
+            "TUNED view lets you inspect & listen anywhere in range (try FM ~100 MHz). "
+            "Only one tuner: tuning/listening pauses the background sweep. It CANNOT see "
+            "2.4/5 GHz Wi-Fi/Bluetooth/video (above range — use the Wi-Fi & BLE sensors), "
+            "cannot tune cellular voice, and never decodes encrypted/digital content."
             % (self.TUNER_LOW_MHZ, self.TUNER_HIGH_MHZ / 1000.0))
         self._started = True
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name="rf-sweep")
         self._thread.start()
 
-    # ---- background sweeper -------------------------------------------------
+    # ---- background worker (single owner of the tuner) ----------------------
     def _run_loop(self):
         while True:
             try:
-                self._sweep_full()
+                if self._mode == "tuned":
+                    self._tuned_cycle()
+                else:
+                    self._sweep_full()
+                    time.sleep(self.SCAN_PERIOD)
             except Exception as e:               # device unplugged / driver hiccup
                 self._error = str(e)
                 with self._lock:
                     self._dets = []
                     self._spectrum = []
-            time.sleep(self.SCAN_PERIOD)
+                time.sleep(0.3)
 
+    # ====================== SWEEP MODE (surveillance) ========================
     def _power_at(self, center_hz, nsamp=None):
         """Read median (noise floor) and max (peak) power, in dB, around a tune.
 
@@ -131,10 +172,21 @@ class RFSensor(Sensor):
         the same genuine RTL-SDR reads. Updates _spectrum/_floor/_dets atomically."""
         if not self.sdr:
             return
+        # make sure the radio is in sweep config (it may have been left in a tuned
+        # sample rate / fixed gain by a previous TUNED session)
+        if self._applied_epoch != -2:
+            try:
+                self.sdr.sample_rate = self.SAMPLE_RATE
+                self.sdr.gain = "auto"
+            except Exception:
+                pass
+            self._applied_epoch = -2
         spec = []        # (freq_mhz, peak_db) — peak power per tune, DC-spike masked
         floors = []
         f = self.TUNER_LOW_MHZ
         while f <= self.TUNER_HIGH_MHZ:
+            if self._mode != "sweep":            # user jumped to the tuned view
+                return
             try:
                 floor, peak = self._power_at(f * 1e6, self.READ_SAMPLES)
                 spec.append((round(float(f), 1), round(peak, 1)))
@@ -174,13 +226,220 @@ class RFSensor(Sensor):
             self._dets = dets
             self._sweep_n += 1
 
+    # ====================== TUNED MODE (live SDR view) =======================
+    def set_view(self, center_mhz=None, span_hz=None, demod=None, audio=None):
+        """Enter/refresh the live tuned view. Clamps to the tuner's real range and
+        to a valid span. Switching center/span/gain bumps an epoch so the worker
+        reconfigures the radio on its next cycle."""
+        with self._lock:
+            r = dict(self._req)
+            if center_mhz is not None:
+                c = max(self.TUNER_LOW_MHZ, min(self.TUNER_HIGH_MHZ, float(center_mhz)))
+                r["center_hz"] = int(round(c * 1e6))
+            if span_hz is not None:
+                r["span_hz"] = min(VALID_SPANS_HZ, key=lambda s: abs(s - int(span_hz)))
+            if demod is not None and str(demod).upper() in DEMODS:
+                r["demod"] = str(demod).upper()
+            if audio is not None:
+                r["audio"] = bool(audio)
+            changed = (r["center_hz"] != self._req["center_hz"]
+                       or r["span_hz"] != self._req["span_hz"])
+            self._req = r
+            if changed or self._mode != "tuned":
+                self._epoch += 1
+            self._mode = "tuned"
+            if not r["audio"]:
+                self._audio_q.clear()
+
+    def set_sweep(self):
+        """Return to the surveillance sweep (resumes background detection)."""
+        with self._lock:
+            self._mode = "sweep"
+            self._tuned = None
+            self._audio_q.clear()
+        self._applied_epoch = -1   # force a sweep reconfigure next cycle
+
+    def _tuned_cycle(self):
+        """One real read at the tuned centre: configure if needed, read IQ, build
+        the spectrum (averaged periodogram) and optionally demodulate audio."""
+        if not self.sdr:
+            return
+        with self._lock:
+            req = dict(self._req)
+            epoch = self._epoch
+        if epoch != self._applied_epoch:
+            try:
+                self.sdr.sample_rate = req["span_hz"]
+                self.sdr.center_freq = req["center_hz"]
+                self.sdr.gain = self._nearest_gain(self.TUNED_GAIN_DB)
+            except Exception as e:
+                self._error = str(e)
+                time.sleep(0.2)
+                return
+            self._applied_epoch = epoch
+
+        fs = float(req["span_hz"])
+        audio_on = req["audio"]
+        demod = req["demod"]
+        # block: ~0.1 s when listening (sized to decimate cleanly), else snappier
+        if audio_on:
+            k = self._audio_decim(fs, demod)
+            nsamp = int(round(fs * 0.1 / k)) * k
+        else:
+            nsamp = self.NFFT * 16
+        try:
+            x = self.sdr.read_samples(nsamp)
+        except Exception as e:
+            self._error = str(e)
+            time.sleep(0.1)
+            return
+
+        spec = self._periodogram(x, req["center_hz"], fs)
+        pcm = None
+        if audio_on:
+            pcm, arate = self._demodulate(x, fs, demod)
+
+        with self._lock:
+            self._tuned_n += 1
+            spec["n"] = self._tuned_n
+            self._tuned = spec
+            if pcm is not None:
+                self._audio_rate = arate
+                self._audio_q.append(pcm)
+
+    def _periodogram(self, x, center_hz, fs):
+        """Real averaged power spectrum across the tuned span, peak-held down to
+        SPEC_BINS display points so narrow carriers stay visible."""
+        N = self.NFFT
+        nseg = max(1, len(x) // N)
+        win = np.hanning(N)
+        acc = np.zeros(N)
+        for i in range(nseg):
+            seg = x[i * N:(i + 1) * N] * win
+            acc += np.abs(np.fft.fftshift(np.fft.fft(seg))) ** 2
+        acc /= nseg
+        pdb = 10.0 * np.log10(acc + 1e-12)
+        # peak-hold bin down to SPEC_BINS
+        bins = min(self.SPEC_BINS, N)
+        step = N // bins
+        pdb = pdb[:bins * step].reshape(bins, step).max(axis=1)
+        f0 = center_hz - fs / 2.0
+        df = fs / N * step
+        pts = [[round((f0 + (i + 0.5) * df) / 1e6, 4), round(float(pdb[i]), 1)]
+               for i in range(bins)]
+        floor = float(np.median(pdb))
+        pk_i = int(np.argmax(pdb))
+        return {
+            "center_mhz": round(center_hz / 1e6, 4),
+            "span_hz": int(fs),
+            "low_mhz": round(f0 / 1e6, 4),
+            "high_mhz": round((center_hz + fs / 2.0) / 1e6, 4),
+            "floor": round(floor, 1),
+            "peak": {"mhz": pts[pk_i][0], "db": pts[pk_i][1]},
+            "demod": self._req["demod"],
+            "audio": bool(self._req["audio"]),
+            "audio_rate": self._audio_rate,
+            "gain_db": self.TUNED_GAIN_DB,
+            "points": pts,
+        }
+
+    # ---- demodulation (REAL analog WFM/AM/NFM only) -------------------------
+    @staticmethod
+    def _boxdec(sig, k):
+        """Boxcar decimate by integer k (cheap anti-alias low-pass + downsample)."""
+        if k <= 1:
+            return sig
+        t = (len(sig) // k) * k
+        return sig[:t].reshape(-1, k).mean(axis=1)
+
+    def _audio_decim(self, fs, demod):
+        """Total integer decimation from span fs down to the ~48 kHz audio rate."""
+        if demod == "WFM":
+            k1 = max(1, int(round(fs / 240000)))      # isolate the ~200 kHz FM channel
+            return k1 * max(1, int(round((fs / k1) / AUDIO_RATE)))
+        # AM / NFM: take the envelope/discriminator at fs then decimate to audio
+        return max(1, int(round(fs / AUDIO_RATE)))
+
+    def _demodulate(self, x, fs, demod):
+        """Demodulate REAL IQ to mono int16 PCM. WFM/AM/NFM only — open analog
+        modulation. Returns (bytes, rate) or (None, rate)."""
+        if demod == "WFM":
+            k1 = max(1, int(round(fs / 240000)))
+            ch = self._boxdec(x, k1)                  # complex IF ~240 kHz
+            if_rate = fs / k1
+            disc = np.angle(ch[1:] * np.conj(ch[:-1]))
+            k2 = max(1, int(round(if_rate / AUDIO_RATE)))
+            audio = self._boxdec(disc, k2)
+            arate = if_rate / k2
+            audio = self._deemphasis(audio, arate)
+            gain = 9000.0
+        elif demod == "NFM":
+            disc = np.angle(x[1:] * np.conj(x[:-1]))
+            k = max(1, int(round(fs / AUDIO_RATE)))
+            audio = self._boxdec(disc, k)
+            arate = fs / k
+            gain = 16000.0                            # narrow deviation → more gain
+        elif demod == "AM":
+            env = np.abs(x)
+            k = max(1, int(round(fs / AUDIO_RATE)))
+            audio = self._boxdec(env, k)
+            arate = fs / k
+            audio = audio - np.mean(audio)            # drop the DC carrier term
+            rms = float(np.sqrt(np.mean(audio ** 2))) or 1.0
+            gain = 0.2 * 32767.0 / max(rms, 1e-6)     # AM amplitude varies → normalise
+        else:
+            return None, AUDIO_RATE
+        samples = np.clip(audio * gain, -32767, 32767).astype('<i2')
+        return samples.tobytes(), int(round(arate))
+
+    @staticmethod
+    def _deemphasis(a, fs, tau=75e-6):
+        """75 µs FM de-emphasis (one-pole IIR) — tames the bright treble hiss."""
+        alpha = 1.0 - np.exp(-1.0 / (fs * tau))
+        y = np.empty_like(a)
+        acc = 0.0
+        for i in range(len(a)):
+            acc += alpha * (a[i] - acc)
+            y[i] = acc
+        return y
+
+    def _nearest_gain(self, db):
+        try:
+            gains = self.sdr.valid_gains_db
+            return min(gains, key=lambda g: abs(g - db))
+        except Exception:
+            return db
+
+    # ---- getters for the server/UI -----------------------------------------
     def spectrum(self):
-        """The latest real swept spectrum for the UI (power vs frequency)."""
+        """The latest real swept spectrum for the UI (sweep mode, power vs freq)."""
         with self._lock:
             return {"n": self._sweep_n, "floor": self._floor,
                     "low_mhz": self.TUNER_LOW_MHZ, "high_mhz": self.TUNER_HIGH_MHZ,
                     "bands": [[b[0], b[1]] for b in BANDS],
                     "points": list(self._spectrum)}
+
+    def tuned_state(self):
+        """Latest live tuned spectrum (None when in sweep mode / not ready yet)."""
+        with self._lock:
+            if self._mode != "tuned" or self._tuned is None:
+                return None
+            return dict(self._tuned)
+
+    def pop_audio(self):
+        """Pop pending PCM frames (drains the queue). Returns (rate, [bytes])."""
+        with self._lock:
+            if not self._audio_q:
+                return self._audio_rate, []
+            frames = list(self._audio_q)
+            self._audio_q.clear()
+            return self._audio_rate, frames
+
+    def view_meta(self):
+        """Static info the UI needs to build the tuned controls."""
+        return {"spans": VALID_SPANS_HZ, "demods": list(DEMODS),
+                "low_mhz": self.TUNER_LOW_MHZ, "high_mhz": self.TUNER_HIGH_MHZ,
+                "audio_rate": AUDIO_RATE}
 
     def scan(self):
         with self._lock:
