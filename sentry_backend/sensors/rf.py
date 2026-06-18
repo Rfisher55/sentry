@@ -58,15 +58,19 @@ class RFSensor(Sensor):
     # The R820T tuner (Nooelec NESDR) covers roughly this range.
     TUNER_LOW_MHZ = 25
     TUNER_HIGH_MHZ = 1750
-    STEP_MHZ = 2.0            # ~ sample rate per tune (2.4 MHz bw, slight overlap)
+    STEP_MHZ = 2.4             # tune step across the FULL range (≈ the 2.4 MHz bw)
     SAMPLE_RATE = 2.4e6
+    READ_SAMPLES = 16 * 1024   # per tune; smaller keeps a full sweep fast (~10 s)
     PEAK_DB_OVER_FLOOR = 10.0  # first-cut threshold; real-world tuning is ongoing
-    SCAN_PERIOD = 6.0          # seconds between band sweeps (background thread)
+    SCAN_PERIOD = 0.5          # brief pause between full sweeps (background thread)
 
     def __init__(self):
         super().__init__()
         self.sdr = None
         self._dets = []
+        self._spectrum = []     # [(freq_mhz, peak_db), ...] — the REAL swept spectrum
+        self._floor = None      # estimated noise floor (dB)
+        self._sweep_n = 0       # increments each completed sweep (waterfall row id)
         self._lock = threading.Lock()
         self._thread = None
         self._started = False
@@ -95,16 +99,15 @@ class RFSensor(Sensor):
     def _run_loop(self):
         while True:
             try:
-                dets = self._sweep_bands()
-                with self._lock:
-                    self._dets = dets
+                self._sweep_full()
             except Exception as e:               # device unplugged / driver hiccup
                 self._error = str(e)
                 with self._lock:
                     self._dets = []
+                    self._spectrum = []
             time.sleep(self.SCAN_PERIOD)
 
-    def _power_at(self, center_hz):
+    def _power_at(self, center_hz, nsamp=None):
         """Read median (noise floor) and max (peak) power, in dB, around a tune.
 
         The RTL-SDR has a strong DC spike at the centre frequency (an artefact of
@@ -113,7 +116,7 @@ class RFSensor(Sensor):
         is honest first-cut detection; finer real-world threshold tuning remains.
         """
         self.sdr.center_freq = center_hz
-        samples = self.sdr.read_samples(64 * 1024)
+        samples = self.sdr.read_samples(nsamp or (64 * 1024))
         spectrum = np.fft.fftshift(np.fft.fft(samples))
         power = 20 * np.log10(np.abs(spectrum) + 1e-9)
         floor = float(np.median(power))
@@ -122,25 +125,29 @@ class RFSensor(Sensor):
         peak = float(np.max(edge)) if edge.size else float(np.max(power))
         return floor, peak
 
-    def _sweep_bands(self):
+    def _sweep_full(self):
+        """Sweep the WHOLE tuner range once. Produces a real power-vs-frequency
+        spectrum (for the UI display/waterfall) AND derives band detections from
+        the same genuine RTL-SDR reads. Updates _spectrum/_floor/_dets atomically."""
         if not self.sdr:
-            return []
-        readings = []
-        for lo, hi, *_ in BANDS:
-            f = lo
-            while f <= hi:
-                try:
-                    floor, peak = self._power_at(f * 1e6)
-                    readings.append((f, peak, floor))
-                except Exception:
-                    pass
-                f += self.STEP_MHZ
-        if not readings:
-            return []
-        # noise floor: median of the per-tune medians across the watched bands
-        global_floor = float(np.median([r[2] for r in readings]))
+            return
+        spec = []        # (freq_mhz, peak_db) — peak power per tune, DC-spike masked
+        floors = []
+        f = self.TUNER_LOW_MHZ
+        while f <= self.TUNER_HIGH_MHZ:
+            try:
+                floor, peak = self._power_at(f * 1e6, self.READ_SAMPLES)
+                spec.append((round(float(f), 1), round(peak, 1)))
+                floors.append(floor)
+            except Exception:
+                pass
+            f += self.STEP_MHZ
+        if not spec:
+            return
+        global_floor = float(np.median(floors))
+        # detections: peaks rising above the floor AND inside a watched band only
         dets = []
-        for fmhz, peak, floor in readings:
+        for fmhz, peak in spec:
             over = peak - global_floor
             if over < self.PEAK_DB_OVER_FLOOR:
                 continue
@@ -160,7 +167,20 @@ class RFSensor(Sensor):
                 evidence=[f"peak {over:.0f} dB over noise floor at {fmhz:.1f} MHz"],
                 freq_mhz=fmhz, rssi=peak,
             ))
-        return self._dedupe_by_band(dets)
+        dets = self._dedupe_by_band(dets)
+        with self._lock:
+            self._spectrum = spec
+            self._floor = round(global_floor, 1)
+            self._dets = dets
+            self._sweep_n += 1
+
+    def spectrum(self):
+        """The latest real swept spectrum for the UI (power vs frequency)."""
+        with self._lock:
+            return {"n": self._sweep_n, "floor": self._floor,
+                    "low_mhz": self.TUNER_LOW_MHZ, "high_mhz": self.TUNER_HIGH_MHZ,
+                    "bands": [[b[0], b[1]] for b in BANDS],
+                    "points": list(self._spectrum)}
 
     def scan(self):
         with self._lock:

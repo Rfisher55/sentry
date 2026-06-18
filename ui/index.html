@@ -1050,8 +1050,62 @@ let sigDevice=null;     // device-focused mode: the focused device's id (or null
 let sigChannel=null;    // channel mode: the channel id (or null)
 let sigHist=[];         // focused device's REAL RSSI samples, oldest -> newest
 let sigLive=false;      // did the most recent scan tick carry a real reading?
+let sigWaterfall=[];    // RF: history of downsampled sweeps (newest first)
+let sigSpecN=-1;        // RF: last sweep number we added to the waterfall
 
 function rssiToY(r,H){ const s=Math.max(0,Math.min(1,(r+100)/60)); return H*0.82+10-(s*H*0.82); }
+
+// RF: plot the REAL swept spectrum (power vs frequency) from the RTL-SDR, plus a
+// waterfall of past sweeps. No synthesis — points come straight from the device.
+function drawSpectrum(g,W,H,rfDev){
+  const spec=B._rf_spectrum;
+  g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
+  if(!spec || !spec.points || !spec.points.length){
+    drawNoSignal(g,W,H,'RF SWEEPING…','RTL-SDR online — first full sweep (~25–1750 MHz) in progress.\nThe real spectrum appears once a sweep completes (~10 s).');
+    return;
+  }
+  const pts=spec.points, lo=spec.low_mhz, hi=spec.high_mhz, floor=(spec.floor!=null?spec.floor:0);
+  const specH=Math.floor(H*0.52), padL=46, padR=10, plotW=W-padL-padR;
+  let pmin=floor-3, pmax=pts.reduce((m,p)=>p[1]>m?p[1]:m,-999)+3;
+  if(pmax-pmin<12) pmax=pmin+12;
+  const fx=mhz=>padL+plotW*(mhz-lo)/(hi-lo);
+  const py=db=>specH-6-(specH-18)*Math.max(0,Math.min(1,(db-pmin)/(pmax-pmin)));
+  // shaded watched bands
+  (spec.bands||[]).forEach(b=>{g.fillStyle='rgba(242,169,59,0.10)';const x0=fx(b[0]);g.fillRect(x0,6,Math.max(2,fx(b[1])-x0),specH-12);});
+  // dB grid
+  g.strokeStyle='#1E242C';g.lineWidth=1;g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.textAlign='left';
+  for(let k=0;k<=3;k++){const db=Math.round(pmax-(pmax-pmin)*k/3);const y=py(db);g.beginPath();g.moveTo(padL,y);g.lineTo(W-padR,y);g.stroke();g.fillText(db+'dB',2,y+3);}
+  // freq axis ticks
+  [25,100,300,433,600,915,1200,1750].forEach(m=>{if(m>=lo&&m<=hi){const x=fx(m);g.fillStyle='#3a4650';g.fillText(m>=1000?(m/1000)+'G':m+'M',Math.min(x,W-26),specH-2);}});
+  // FM marker (the easy proof point)
+  if(100>=lo&&100<=hi){const x=fx(98);g.strokeStyle='#2C8C9E';g.setLineDash([2,3]);g.beginPath();g.moveTo(x,6);g.lineTo(x,specH-12);g.stroke();g.setLineDash([]);g.fillStyle='#2C8C9E';g.fillText('FM',x+2,specH-14);}
+  // REAL spectrum line
+  g.strokeStyle='#48C9E0';g.lineWidth=1.3;g.beginPath();
+  pts.forEach((p,i)=>{const x=fx(p[0]),y=py(p[1]);i?g.lineTo(x,y):g.moveTo(x,y);});
+  g.stroke();
+  const pk=pts.reduce((a,p)=>p[1]>a[1]?p:a,pts[0]);
+  g.fillStyle='#F2A93B';g.beginPath();g.arc(fx(pk[0]),py(pk[1]),3,0,7);g.fill();
+  g.textAlign='left';g.fillStyle='#F2A93B';g.font='10px Spline Sans Mono';
+  g.fillText('peak '+pk[1]+' dB @ '+pk[0]+' MHz · floor '+floor+' dB · sweep #'+spec.n,padL+2,14);
+  // focused RF device's frequency marker
+  if(rfDev && rfDev.freq_mhz!=null){const x=fx(rfDev.freq_mhz);g.strokeStyle='#E5564B';g.lineWidth=1.2;g.beginPath();g.moveTo(x,6);g.lineTo(x,specH-6);g.stroke();
+    g.fillStyle='#E5564B';g.fillText('▼ '+rfDev.freq_mhz+' MHz',Math.min(x+3,W-80),26);}
+  // ---- waterfall (one row per real sweep) ----
+  const cols=Math.min(360,pts.length);
+  if(spec.n!==sigSpecN){
+    const row=new Array(cols).fill(-999);
+    pts.forEach(p=>{const ci=Math.min(cols-1,Math.max(0,Math.floor((p[0]-lo)/(hi-lo)*cols)));if(p[1]>row[ci])row[ci]=p[1];});
+    sigWaterfall.unshift(row); if(sigWaterfall.length>140)sigWaterfall.pop(); sigSpecN=spec.n;
+  }
+  const wfTop=specH+12, wfH=H-wfTop-2, rowH=2, colW=plotW/cols;
+  g.fillStyle='#5A6470';g.font='9px Spline Sans Mono';g.fillText('waterfall — each row = one real sweep (newest on top)',padL,specH+9);
+  for(let r=0;r<Math.min(sigWaterfall.length,Math.floor(wfH/rowH));r++){
+    const row=sigWaterfall[r];
+    for(let ci=0;ci<cols;ci++){const v=Math.max(0,Math.min(1,(row[ci]-pmin)/(pmax-pmin)));
+      g.fillStyle='rgba('+Math.floor(v*255)+','+Math.floor(v*150)+','+Math.floor(50+v*40)+','+(0.2+v*0.8)+')';
+      g.fillRect(padL+ci*colW,wfTop+r*rowH,Math.max(1,colW+0.5),rowH);}
+  }
+}
 
 function drawNoSignal(g,W,H,title,msg){
   g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
@@ -1105,6 +1159,10 @@ function drawChannelBars(g,W,H,devs){
 
 function drawSignal(){
   const cv=$('sigCanvas'),g=cv.getContext('2d'),W=cv.width,H=cv.height;
+  // RF view → real swept spectrum + waterfall from the RTL-SDR (power vs freq),
+  // NOT an RSSI-over-time trace (RF power isn't dBm and would peg the line flat).
+  const rfDev = sigDevice ? B.devices.find(x=>x.id===sigDevice) : null;
+  if(sigChannel==='rf' || (rfDev && rfDev.channel==='rf')){ drawSpectrum(g,W,H,rfDev); return; }
   if(sigDevice){
     const d=B.devices.find(x=>x.id===sigDevice);
     if(sigHist.length){ drawRssiTrace(g,W,H); }
@@ -1126,6 +1184,7 @@ function drawSignal(){
 
 function signalCaption(cid){
   const m={
+    rf:"Live RF spectrum from the RTL-SDR: real power (dB) across ~25 MHz–1.75 GHz, swept by the tuner. Tall peaks are real transmitters; the waterfall stacks each sweep over time. Shaded strips are the watched ISM/cellular bands; broadcast (FM/TV) shows in the trace too but isn't alarmed on. A full sweep takes ~10 s (scanning receiver, not real-time wideband).",
     bluetooth:"Live BLE signal strength (RSSI, dBm). Each bar is a device's real current reading; open one device for its trace over time.",
     wifi:"Live Wi-Fi signal strength per access point — Windows' % mapped to ~dBm. Each bar is a real current reading.",
     network:"LAN devices are found by IP/MAC, not radio — there is no RSSI to plot here."
@@ -1191,8 +1250,10 @@ function openDeviceSignal(devId){
   $('sigTitle').textContent=devTitle(d)+' — Live Signal';
   $('sigSub').textContent=(d.rssi!=null?d.rssi+' dBm · ':'no signal · ')+d.ident;
   $('sigCaption').innerHTML='<b style="color:var(--ink)">'+d.maker+(d.model&&d.model!=='—'?' · '+d.model:'')+'</b> · '+d.mac+'<br>'+
-    (d.rssi!=null?"Live RSSI trace below — this device's real signal over time, one point per scan tick."
-                 :'No radio reading for this device — nothing to plot (see panel).');
+    (d.channel==='rf'
+       ? 'Live RF spectrum below (from the RTL-SDR) with this transmitter’s frequency marked ▼.'
+       : d.rssi!=null?"Live RSSI trace below — this device's real signal over time, one point per scan tick."
+                     :'No radio reading for this device — nothing to plot (see panel).');
   renderDeviceReadout(d);
   $('sigOverlay').classList.add('on');
   if(sigRAF)cancelAnimationFrame(sigRAF);
@@ -1221,7 +1282,7 @@ function syncDeviceSignal(){
   }
 }
 
-function closeSignal(){ sigDevice=null; sigChannel=null; sigHist=[]; sigLive=false; $('sigOverlay').classList.remove('on'); if(sigRAF){cancelAnimationFrame(sigRAF);sigRAF=null;} }
+function closeSignal(){ sigDevice=null; sigChannel=null; sigHist=[]; sigLive=false; sigWaterfall=[]; sigSpecN=-1; $('sigOverlay').classList.remove('on'); if(sigRAF){cancelAnimationFrame(sigRAF);sigRAF=null;} }
 
 
 // ---------- WIRE OVERLAY EXITS ----------
@@ -1313,6 +1374,7 @@ function connectBackend(){
         liveConnected=true; setConnState(true);   // real data arrived → hide DEMO banner
         _reconnectDelay=1000;                      // healthy feed → reset backoff
         if(Array.isArray(msg.sensors)){ B._sensors=msg.sensors; showSensorStatus(msg.sensors); }
+        if(msg.rf_spectrum) B._rf_spectrum=msg.rf_spectrum;   // real RTL-SDR sweep for the RF view
         // merge into the grace roster (stable order, no random drops), then do
         // ONLY in-place updates — never rebuild or close anything in view.
         applyLive(msg.devices);

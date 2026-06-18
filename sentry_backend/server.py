@@ -239,11 +239,22 @@ class Station:
             if is_new:
                 new_count += 1
 
+        # real RF spectrum (power vs frequency) from the RTL-SDR, for the UI's
+        # spectrum/waterfall view — empty unless the SDR is online.
+        rf_spectrum = {}
+        rf_sensor = next((s for s in SENSORS if s.channel == "rf"), None)
+        try:
+            if rf_sensor and rf_sensor.status()["online"] and hasattr(rf_sensor, "spectrum"):
+                rf_spectrum = rf_sensor.spectrum()
+        except Exception:
+            rf_spectrum = {}
+
         self.latest = {
             "devices": devices,
             "sensors": [s.status() for s in SENSORS],
             "new_count": new_count,
             "baseline_ready": self._baseline is not None,
+            "rf_spectrum": rf_spectrum,
             "ts": now,
         }
         return self.latest
