@@ -24,9 +24,11 @@
   /* title bar */
   .bar{display:flex;align-items:center;gap:14px;padding:9px 16px;border-bottom:1px solid var(--line);background:var(--slate2);flex:none}
   .logo{font-weight:800;letter-spacing:.32em;font-size:14px}.logo b{color:var(--amber)}
-  .tabs{display:flex;gap:3px;margin-left:6px}
+  .tabs{display:flex;gap:3px;margin-left:6px;align-items:center}
   .tab{font-size:11px;letter-spacing:.1em;font-weight:700;color:var(--dim);background:none;border:none;padding:7px 13px;border-radius:6px;cursor:pointer;text-transform:uppercase}
   .tab.on{background:var(--slate4);color:var(--ink)}
+  .navgrp{font-size:9px;letter-spacing:.18em;font-weight:700;color:var(--dimmer);padding:0 6px 0 2px;text-transform:uppercase;user-select:none}
+  .navsep{width:1px;height:18px;background:var(--line);margin:0 6px}
   .status{margin-left:auto;display:flex;gap:14px;font-family:'JetBrains Mono';font-size:11px;color:var(--dim);align-items:center}
   .status b{color:var(--clear)}
   .alertcount{color:var(--alert)!important;font-weight:700}
@@ -230,13 +232,15 @@
   <div class="bar">
     <span class="logo">SEN<b>T</b>RY</span>
     <div class="tabs">
-      <button class="tab on" data-tab="scan">Scan</button>
-      <button class="tab" data-tab="tools">Tools</button>
-      <button class="tab" data-tab="channels">Channels</button>
-      <button class="tab" data-tab="radio">Radio</button>
+      <span class="navgrp">DETECT</span>
+      <button class="tab on" data-tab="scan">Overview</button>
       <button class="tab" data-tab="network">Network</button>
-      <button class="tab" data-tab="threats">Watchers</button>
-      <button class="tab" data-tab="surface">Evidence</button>
+      <button class="tab" data-tab="drones">Drones</button>
+      <button class="tab" data-tab="threats">Alerts</button>
+      <span class="navsep"></span>
+      <span class="navgrp">TOOLS</span>
+      <button class="tab" data-tab="radio">Listening</button>
+      <button class="tab" data-tab="tools">Sensors &amp; Toolkit</button>
     </div>
     <div class="status">
       <span>MONITORING <b>LIVE</b></span>
@@ -281,7 +285,7 @@
       <div class="maphint" id="maphint">Tap a dot to open that device. Rings = estimated distance from signal strength (live) — nearer the centre = stronger/closer. Cameras are squares; LAN devices (found by IP, no radio range) sit on the dashed outer ring. <b>No direction is shown:</b> a single built-in antenna can't measure bearing, so the angle around the rings is just spacing to separate dots — it is NOT a compass. Use Locate to home in by signal strength; true direction needs the directional antenna (not installed).</div>
     </div>
     <div class="right">
-      <div class="ch" id="devHdr">Detected devices</div>
+      <div class="ch" id="devHdr">What's around me</div>
       <div class="ctrlbar">
         <div class="ctrlrow">
           <button class="ibtn" id="btnRefresh">⟳ REFRESH</button>
@@ -312,21 +316,21 @@
   </div>
 
   <!-- TOOLS -->
+  <!-- SENSORS & TOOLKIT (merged: channels catalog + tools catalog) -->
   <div class="view" id="tools">
-    <div class="gridhd">Counter-surveillance tools · tap to open</div>
-    <div class="grid" id="toolgrid"></div>
-  </div>
-
-  <!-- CHANNELS -->
-  <div class="view" id="channels">
-    <div class="gridhd">Detection channels · what the station is sensing</div>
-    <div class="chgrid" id="chgrid"></div>
+    <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
+      <div class="gridhd">Sensors &amp; Toolkit · supplementary — reference &amp; utilities, not live threat detection</div>
+      <div class="ch" style="padding:2px 0;color:var(--dim)">Detection channels — what the station can sense</div>
+      <div class="chgrid" id="chgrid"></div>
+      <div class="ch" style="padding:10px 0 2px;color:var(--dim)">Tools — tap to open</div>
+      <div class="grid" id="toolgrid"></div>
+    </div>
   </div>
 
   <!-- RADIO (scan bands · spectrum · listen) -->
   <div class="view" id="radio">
     <div style="display:flex;flex-direction:column;gap:9px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
-      <div class="gridhd">Radio · sweep the bands, watch the live spectrum, and listen — RTL-SDR, analog only</div>
+      <div class="gridhd">Listening · supplementary — legal analog radio (FM, air, weather, ham, FRS/GMRS). Hobby &amp; signal study, not threat detection. RTL-SDR, analog only.</div>
       <div id="radioOffline" style="display:none;color:var(--alert);font-family:'JetBrains Mono';font-size:12px">○ RTL-SDR not detected — plug in the dongle (and close any other SDR app using it) to use the radio.</div>
       <div id="radioWrap" style="display:flex;flex-direction:column;gap:9px">
         <!-- CHANNELS: flip through real channel plans like a car radio / scanner -->
@@ -369,7 +373,7 @@
   <!-- NETWORK INSPECTOR + SECURITY LAB (your own network only) -->
   <div class="view" id="network">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
-      <div class="gridhd">Network Inspector &amp; Security Assessment Toolkit</div>
+      <div class="gridhd">Network — is something on my network watching me? Cameras, new/unknown devices, phone-home. <span style="color:var(--dim);font-weight:400">(Includes a supplementary own-network assessment toolkit below.)</span></div>
       <div style="font-family:'JetBrains Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
         ⚠ <b>AUTHORIZATION:</b> These tools (nmap, tshark, port/web scans, IDS) are for networks &amp; devices you OWN or are explicitly AUTHORIZED to test. They do recon, assessment, detection &amp; hardening guidance only — no exploitation, no break-in, no credential cracking, no capturing other people's content. Scanning others is illegal.
       </div>
@@ -438,7 +442,7 @@
   <!-- WATCHERS — counter-surveillance: who/what is watching you (detect & locate only) -->
   <div class="view" id="threats">
     <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
-      <div class="gridhd">Who's Watching You — counter-surveillance command center</div>
+      <div class="gridhd">Alerts — who's watching, listening to, or tracking you</div>
       <div style="font-family:'JetBrains Mono';font-size:11px;background:#11202a;border:1px solid #1e3a44;border-radius:8px;padding:8px 11px;color:var(--cyan)">
         🕵 Every device SENTRY flags as <b>watching, listening to, or tracking you</b> — ranked by threat, with what it can capture and what to do. <b>Detect &amp; locate only:</b> find it, then <b>remove it from your own space or report it</b> — SENTRY never jams, hacks, or attacks (that's illegal and escalates risk).
       </div>
@@ -448,13 +452,7 @@
         <span style="color:var(--dimmer);font-size:10px">Live from RF + Wi-Fi + Bluetooth + network sensors. Tap a suspect to open it; use Locate to home in by signal.</span>
       </div>
       <div id="watchList" style="display:flex;flex-direction:column;gap:7px"></div>
-    </div>
-  </div>
-
-  <!-- EVIDENCE — follow-test + timestamped evidence log (for police / protective order) -->
-  <div class="view" id="surface">
-    <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
-      <div class="gridhd">Follow-Test &amp; Evidence Log</div>
+      <div class="gridhd" style="margin-top:8px;border-top:1px solid var(--line);padding-top:12px">Follow-test &amp; evidence log</div>
       <div style="font-family:'JetBrains Mono';font-size:11px;background:#2a1f0e;border:1px solid #5a4416;border-radius:8px;padding:8px 11px;color:var(--amber)">
         🧾 The safe, legal way to "stop" a stalker is <b>detect → locate → remove from your own space → document → report.</b> This builds a timestamped record you can hand to police or use for a protective order. <b>Don't attack their gear</b> — it's illegal and tips them off.
       </div>
@@ -478,6 +476,18 @@
       <div style="font-family:'JetBrains Mono';font-size:10px;color:var(--dimmer);line-height:1.5;background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px">
         <b style="color:var(--clear)">If you think you're being followed right now:</b> get to a public place, don't go home, tell someone where you are, and consider calling local police — a planted tracker or being followed is something they can act on. Remove a tracker from <b>your own</b> property (e.g. take out its battery) and keep it as evidence; don't tamper with devices that aren't yours — photograph them in place and report instead.
       </div>
+    </div>
+  </div>
+
+  <!-- DRONE DETECTION (broadcasting drones — detect-only) -->
+  <div class="view" id="drones">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:12px;height:100%;box-sizing:border-box;overflow:auto">
+      <div class="gridhd">Drone Detection — is a drone surveilling me</div>
+      <div style="font-family:'JetBrains Mono';font-size:11px;background:#11202a;border:1px solid #1e3a44;border-radius:8px;padding:8px 11px;color:var(--cyan)">
+        Detects drones that <b>broadcast</b>: Wi-Fi-linked drones (their control / video Wi-Fi link) and named drone devices over Wi-Fi or Bluetooth, plus Remote ID beacons where your radio exposes them. Detect-only — SENTRY never interferes with any aircraft. <b>Honest limit:</b> analog 2.4 / 5.8 GHz drone video and full Remote ID frame decoding need a HackRF / monitor-mode Wi-Fi adapter — flagged as an upgrade, not faked.
+      </div>
+      <div style="font-family:'JetBrains Mono';font-size:11px;color:var(--dim)"><span id="droneCount" style="color:var(--clear);font-weight:600">Scanning Wi-Fi + Bluetooth…</span></div>
+      <div id="droneList" style="display:flex;flex-direction:column;gap:7px"></div>
     </div>
   </div>
 
@@ -636,8 +646,10 @@ document.querySelectorAll('.tab').forEach(t=>{
     if(t.dataset.tab==='radio'){ if(typeof startRadio==='function') startRadio(); }
     else { if(typeof stopRadio==='function') stopRadio(); }
     if(t.dataset.tab==='network'){ if(typeof startNetwork==='function') startNetwork(); }
-    if(t.dataset.tab==='threats'){ if(typeof startWatchers==='function') startWatchers(); } else { if(typeof stopWatchers==='function') stopWatchers(); }
-    if(t.dataset.tab==='surface'){ if(typeof startEvidence==='function') startEvidence(); }
+    // Alerts = merged Watchers (suspects) + Evidence (follow-test + log)
+    if(t.dataset.tab==='threats'){ if(typeof startWatchers==='function') startWatchers(); if(typeof startEvidence==='function') startEvidence(); }
+    else { if(typeof stopWatchers==='function') stopWatchers(); }
+    if(t.dataset.tab==='drones'){ if(typeof startDrones==='function') startDrones(); } else { if(typeof stopDrones==='function') stopDrones(); }
   };
 });
 
@@ -734,7 +746,7 @@ function syncDevList(){
     prev=row;
   });
   const total=B.devices.length, shown=vis.length;
-  $('devHdr').textContent='Detected devices · '+shown+(shown!==total?' / '+total:'')
+  $('devHdr').textContent="What's around me · "+shown+(shown!==total?' / '+total:'')
     +(gNewOnly?' (new/changed)':'');
 }
 // full reset (used for initial/demo render and tab/rescan); then defer to sync
@@ -2047,6 +2059,41 @@ function startEvidence(){
   const cl=$('evClearBtn'); if(cl&&!cl._w){ cl._w=1; cl.onclick=evClearLog; }
   evRenderLog();
 }
+
+// ================= DRONE DETECTION (broadcasting drones — detect-only) ========
+// Flags drones that announce themselves over Wi-Fi or Bluetooth: control/video
+// Wi-Fi links and named drone devices, plus Remote ID device names. Uses the live
+// Wi-Fi + BLE scans — no transmit, no interference.
+let _droneTimer=null;
+const DRONE_RE=/\b(dji|mavic|phantom|inspire|matrice|tello|spark|avata|mini\s?se|air\s?2|parrot|bebop|anafi|disco|fimi|autel|evo|skydio|yuneec|typhoon|hubsan|potensic|holy\s?stone|ryze|cfly|fpv|drone|uav|quadcopter|remote\s?id|astm\s?f3411)\b/i;
+const DRONE_VENDORS=/\b(dji|sz dji|parrot|yuneec|autel|skydio|hubsan)\b/i;
+function looksDrone(d){
+  const t=[d.kind,d.model,d.ident,d.device_type,d.behaviortxt].join(' ');
+  return DRONE_RE.test(t) || DRONE_VENDORS.test(d.maker||'');
+}
+function droneScan(){
+  const host=$('droneList'), cnt=$('droneCount'); if(!host) return;
+  const hits=(B.devices||[]).filter(d=>(d.channel==='wifi'||d.channel==='bluetooth')&&looksDrone(d))
+    .sort((a,b)=>(b.rssi||-999)-(a.rssi||-999));
+  if(cnt) cnt.textContent = hits.length
+    ? (hits.length+' possible drone signal'+(hits.length===1?'':'s')+' detected')
+    : 'No broadcasting drones detected on Wi-Fi or Bluetooth right now ✓';
+  if(!hits.length){
+    host.innerHTML='<div style="font-family:\'JetBrains Mono\';font-size:11px;color:var(--dim);background:var(--slate2);border:1px solid var(--line);border-radius:8px;padding:10px">Nothing announcing itself as a drone. <span style="color:var(--dimmer)">A drone running silent (no Wi-Fi link, Remote ID off, or pure analog 2.4/5.8 GHz video) won\'t show here — that needs a HackRF / monitor-mode adapter.</span></div>';
+    return;
+  }
+  host.innerHTML=hits.map(d=>{
+    const src=d.channel==='wifi'?'Wi-Fi link':'Bluetooth';
+    return '<div style="background:var(--slate2);border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:8px;padding:9px 11px;font-family:\'JetBrains Mono\';font-size:11px">'
+      +'<div><span style="color:var(--amber);font-weight:700">⚠ POSSIBLE DRONE</span> · <b style="color:var(--ink)">'+(d.kind||d.model||'device')+'</b> <span style="color:var(--dimmer)">'+src+(d.rssi!=null?' · '+Math.round(d.rssi)+' dBm':'')+'</span></div>'
+      +(d.maker&&d.maker!=='Not announced'?'<div style="color:var(--dim)">Vendor: '+d.maker+'</div>':'')
+      +'<div style="color:var(--dimmer);font-size:10px">'+(d.behaviortxt||d.ident||'')+'</div>'
+      +'<div style="margin-top:5px"><button onclick="watchLocate(\''+d.id+'\')" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:4px;padding:2px 9px;cursor:pointer;font-family:inherit;font-size:10px">📍 LOCATE</button> '
+      +'<button onclick="watchOpen(\''+d.id+'\')" style="background:var(--slate3);color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:2px 9px;cursor:pointer;font-family:inherit;font-size:10px">⊕ DETAILS</button></div></div>';
+  }).join('');
+}
+function startDrones(){ droneScan(); if(_droneTimer) clearInterval(_droneTimer); _droneTimer=setInterval(droneScan,2500); }
+function stopDrones(){ if(_droneTimer){ clearInterval(_droneTimer); _droneTimer=null; } }
 
 
 // ================= RADIO TAB (scan bands · spectrum · listen) =================
