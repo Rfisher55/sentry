@@ -403,12 +403,19 @@ function passesFilters(d){
 function applyLive(devices){
   const now = Date.now();
   const fresh = devices.filter(d=>!roster.has(d.id));
-  fresh.forEach(d=>roster.set(d.id,{dev:d,firstSeen:now,lastSeen:now,slot:rosterSlot++,smooth:(d.rssi??null)}));
+  fresh.forEach(d=>roster.set(d.id,{dev:d,firstSeen:now,lastSeen:now,slot:rosterSlot++,
+                                    smooth:(d.rssi??null), hist:(d.rssi!=null?[d.rssi]:[])}));
   devices.forEach(d=>{
     const r=roster.get(d.id);
     if(r){
       r.dev=d; r.lastSeen=now;
-      if(d.rssi!=null) r.smooth = (r.smooth==null) ? d.rssi : r.smooth*0.7 + d.rssi*0.3; // EMA
+      if(d.rssi!=null){
+        r.smooth = (r.smooth==null) ? d.rssi : r.smooth*0.7 + d.rssi*0.3; // EMA
+        // rolling RSSI history per device — this is what lets the channel view
+        // draw a LIVE sparkline so you can SEE the real signal moving over time
+        // (the data was always live; a single bar just couldn't show it).
+        (r.hist || (r.hist=[])).push(d.rssi); if(r.hist.length>60) r.hist.shift();
+      }
     }
   });
   // evict only after the grace period — and never the device you're looking at
@@ -1238,23 +1245,51 @@ function drawRssiTrace(g,W,H){
 
 // (b) channel-level: a real snapshot of every device on the channel that has a
 // measured RSSI right now — one bar each, sorted by strength, no synthesis
+// Channel-level live view: one row per device with a REAL moving RSSI sparkline
+// (the device's rolling history from the roster) so you can see the signal change
+// over time — not a frozen bar. RSSI is genuinely live; this makes it visible.
 function drawChannelBars(g,W,H,devs){
   g.fillStyle='#0B0E12';g.fillRect(0,0,W,H);
   g.textAlign='left';g.fillStyle='#5A6470';g.font='11px Spline Sans Mono';
-  g.fillText('LIVE RSSI · '+devs.length+' device'+(devs.length===1?'':'s')+' with a real reading',16,22);
-  const top=40, maxRows=Math.max(1,Math.floor((H-top-12)/22)), shown=devs.slice(0,maxRows), rowH=22;
+  g.fillText('● LIVE RSSI over time · '+devs.length+' device'+(devs.length===1?'':'s')+' · each trace is its real signal moving',16,22);
+  const top=38, rowH=30, maxRows=Math.max(1,Math.floor((H-top-12)/rowH)), shown=devs.slice(0,maxRows);
+  const spkL=160, spkR=W-86, spkW=spkR-spkL;           // sparkline x-range
+  const rssiToYrow=(r,y0)=>{const s=Math.max(0,Math.min(1,(r+100)/60));return y0+rowH-6-s*(rowH-12);};
   shown.forEach((d,i)=>{
-    const y=top+i*rowH, s=Math.max(0,Math.min(1,(d.rssi+100)/60)), barW=(W-210)*s;
+    const y=top+i*rowH;
     const col=d.rssi>=-55?'#3FB984':d.rssi>=-80?'#F2A93B':'#E5564B';
-    g.fillStyle='#11171e';g.fillRect(150,y,W-210,14);
-    g.fillStyle=col;g.fillRect(150,y,barW,14);
+    // name
     g.fillStyle='#9FB1C2';g.font='11px Spline Sans Mono';g.textAlign='left';
-    g.fillText(String(devTitle(d)).slice(0,20),16,y+12);
-    g.textAlign='right';g.fillStyle=col;g.fillText(d.rssi+' dBm',W-16,y+12);
+    g.fillText(String(devTitle(d)).slice(0,20),16,y+rowH/2+3);
+    // sparkline track
+    g.fillStyle='#0E141b';g.fillRect(spkL,y+3,spkW,rowH-9);
+    g.strokeStyle='#1b232c';g.lineWidth=1;g.strokeRect(spkL,y+3,spkW,rowH-9);
+    const hist=(roster.get(d.id)||{}).hist||[];
+    if(hist.length>=2){
+      const n=hist.length, x0=spkL+2, xw=spkW-4;
+      // filled area under the trace
+      g.beginPath();
+      hist.forEach((r,k)=>{const x=x0+xw*(k/(n-1)),yy=rssiToYrow(r,y);k?g.lineTo(x,yy):g.moveTo(x,yy);});
+      g.lineTo(x0+xw,y+rowH-3);g.lineTo(x0,y+rowH-3);g.closePath();
+      g.fillStyle=col+'22';g.fill();
+      // the live trace
+      g.strokeStyle=col;g.lineWidth=1.4;g.beginPath();
+      hist.forEach((r,k)=>{const x=x0+xw*(k/(n-1)),yy=rssiToYrow(r,y);k?g.lineTo(x,yy):g.moveTo(x,yy);});
+      g.stroke();
+      // leading dot = current reading
+      const lx=x0+xw, ly=rssiToYrow(hist[n-1],y);
+      g.fillStyle=col;g.beginPath();g.arc(lx,ly,2.5,0,7);g.fill();
+    } else {
+      g.fillStyle='#3a4650';g.font='9px Spline Sans Mono';g.textAlign='left';
+      g.fillText('collecting…',spkL+6,y+rowH/2+3);
+    }
+    // current value
+    g.textAlign='right';g.fillStyle=col;g.font='600 11px Spline Sans Mono';
+    g.fillText((d.rssi!=null?d.rssi+' dBm':'—'),W-14,y+rowH/2+3);
   });
   g.textAlign='left';
   if(devs.length>shown.length){ g.fillStyle='#5A6470';g.font='10px Spline Sans Mono';
-    g.fillText('+'+(devs.length-shown.length)+' more',16,top+shown.length*rowH+12); }
+    g.fillText('+'+(devs.length-shown.length)+' more',16,top+shown.length*rowH+10); }
 }
 
 function drawSignal(){
