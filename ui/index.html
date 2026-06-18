@@ -2592,7 +2592,14 @@ function connectBackend(){
       if(msg && Array.isArray(msg.devices)){
         liveConnected=true; setConnState(true);   // real data arrived → hide DEMO banner
         _reconnectDelay=1000;                      // healthy feed → reset backoff
-        if(Array.isArray(msg.sensors)){ B._sensors=msg.sensors; showSensorStatus(msg.sensors); }
+        if(Array.isArray(msg.sensors)){ B._sensors=msg.sensors; showSensorStatus(msg.sensors);
+          // re-render the catalogs when a sensor flips online/offline (e.g. RF comes
+          // up ~30s after launch) so their status badge + hint stop saying "needs a
+          // dongle" once it's actually live.
+          const sig=msg.sensors.map(s=>s.channel+(s.online?'1':'0')).join('|');
+          if(sig!==B._sensorSig){ B._sensorSig=sig;
+            if(typeof renderToolGrid==='function') renderToolGrid();
+            if(typeof renderChannels==='function') renderChannels(); } }
         if(msg.rf_spectrum) B._rf_spectrum=msg.rf_spectrum;   // real RTL-SDR sweep for the RF view
         // merge into the grace roster (stable order, no random drops), then do
         // ONLY in-place updates — never rebuild or close anything in view.
