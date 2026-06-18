@@ -366,6 +366,15 @@
         </div>
         <div id="netNmapResult" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:8px"></div>
       </div>
+      <!-- DETECTION: ARP/MITM + IDS -->
+      <div style="background:#0E141b;border:1px solid #1b232c;border-radius:8px;padding:9px 11px">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
+          <span style="color:var(--cyan);font-weight:600">DETECTION</span>
+          <button id="netArpBtn" style="background:#13242b;color:var(--cyan);border:1px solid var(--cyan);border-radius:5px;padding:4px 11px;cursor:pointer;font-family:inherit;font-size:11px">⚠ ARP / MITM CHECK</button>
+          <span style="color:var(--dimmer);font-size:10px">Flags ARP-spoofing / rogue-gateway (one MAC claiming many IPs). Port-scan &amp; high-fanout anomaly IDS run automatically during a live traffic CAPTURE (above).</span>
+        </div>
+        <div id="netArpResult" style="font-family:'Spline Sans Mono';font-size:11px;color:var(--dimmer);margin-top:7px"></div>
+      </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:'Spline Sans Mono';font-size:11px;color:var(--dim)">
         <span style="color:var(--cyan);font-weight:600">SCAN AN IP</span>
         <input id="netIp" type="text" placeholder="192.168.1.1" style="width:130px;background:#0B0E12;border:1px solid #25303a;color:var(--ink);border-radius:5px;padding:4px 7px;font-family:inherit;font-size:11px">
@@ -1566,6 +1575,13 @@ function netRenderTraffic(s){
   const enc=s.encrypted||0, pl=s.plaintext||0, tot=Math.max(1,enc+pl);
   let h='<div style="color:var(--ink)">'+s.packets+' packets in '+s.seconds+'s on '+s.interface
     +' <span style="color:var(--dimmer)">· '+s.note+'</span></div>';
+  // IDS alerts (port scans against me, high-fanout anomaly)
+  if(s.ids&&s.ids.length){
+    h+='<div style="margin:6px 0;background:#2a1416;border:1px solid #5a2620;border-radius:6px;padding:6px 9px">'
+      +'<span style="color:var(--alert)">🛡 IDS alerts:</span>';
+    s.ids.forEach(a=>h+='<div style="font-size:10.5px"><b style="color:'+(RSKCOL[a.severity]||'#888')+'">'+a.severity.toUpperCase()+'</b> '+a.what+' <span style="color:var(--clear)">→ '+a.fix+'</span></div>');
+    h+='</div>';
+  } else { h+='<div style="margin:5px 0;color:var(--clear);font-size:10.5px">🛡 IDS: no port-scan or anomaly patterns in this window ✓</div>'; }
   // encrypted vs plaintext bar
   h+='<div style="margin:6px 0"><span style="color:var(--cyan)">Exposure:</span> '
     +'<span style="color:#3FB984">'+enc+' encrypted</span> · <span style="color:#F2A93B">'+pl+' in the clear</span> '
@@ -1689,8 +1705,21 @@ function netRenderWeb(w){
   h+='<div style="color:var(--dimmer);font-size:9.5px;margin-top:3px">'+(w.nikto_note||'')+'</div></div>';
   el.innerHTML=h;
 }
+function netArpRun(){
+  const el=$('netArpResult'); if(el) el.innerHTML='<span style="color:var(--cyan)">◌ Reading ARP table…</span>';
+  rfSend({cmd:'net_arp_audit'});
+}
+function netRenderArp(a){
+  const el=$('netArpResult'); if(!el) return;
+  if(!a||!a.ok){ el.innerHTML='<span style="color:var(--alert)">⚠ '+((a&&a.error)||'ARP check failed')+'</span>'; return; }
+  let h='<div style="color:var(--ink)">Gateway <b>'+(a.gateway||'?')+'</b> → '+(a.gateway_mac||'unknown')+' · '+a.host_count+' hosts in the ARP cache</div>';
+  (a.findings||[]).forEach(f=>{ const c=RSKCOL[f.severity]||'#888';
+    h+='<div style="border-left:3px solid '+c+';padding:2px 0 4px 8px;margin-top:4px"><b style="color:'+c+'">'+f.severity.toUpperCase()+'</b> '+f.what+'<div style="color:var(--clear);font-size:10.5px">→ '+f.fix+'</div></div>'; });
+  el.innerHTML=h;
+}
 function netWire(){
   if(_netWired)return; _netWired=true;
+  const ab=$('netArpBtn'); if(ab) ab.onclick=netArpRun;
   const nb=$('netNmapBtn'); if(nb) nb.onclick=netNmapRun;
   const nt=$('netNmapTarget'); if(nt) nt.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();netNmapRun();} });
   const b=$('netScanBtn'), ip=$('netIp');
@@ -2189,6 +2218,7 @@ function connectBackend(){
       if(msg && msg.type==='net_nmap_status'){ B._net_nmap=msg.status; if(typeof netRenderNmapStatus==='function') netRenderNmapStatus(); return; }
       if(msg && msg.type==='net_nmap'){ if(typeof netRenderNmap==='function') netRenderNmap(msg.result); return; }
       if(msg && msg.type==='net_web'){ if(typeof netRenderWeb==='function') netRenderWeb(msg.result); return; }
+      if(msg && msg.type==='net_arp'){ if(typeof netRenderArp==='function') netRenderArp(msg.result); return; }
       if(msg && msg.type==='rf_audio'){ if(typeof rfAudioPlay==='function') rfAudioPlay(msg); return; }
       if(msg && msg.type==='rf_ack'){ if(msg.meta) B._rf_meta=msg.meta; return; }
       if(msg && Array.isArray(msg.devices)){

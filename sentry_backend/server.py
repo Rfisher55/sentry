@@ -428,6 +428,12 @@ async def _serve(station):
                                 await ws.send(json.dumps({"type": "net_web", "result": res}))
                             except Exception:
                                 pass
+                        elif cn == "net_arp_audit":
+                            res = await asyncio.to_thread(inspector.arp_audit)
+                            try:
+                                await ws.send(json.dumps({"type": "net_arp", "result": res}))
+                            except Exception:
+                                pass
             except Exception:
                 pass
 

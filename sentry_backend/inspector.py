@@ -614,6 +614,7 @@ def capture_traffic(seconds=8, max_rows=120):
     camera_tells = []
     rows = []
     total = 0
+    scan_track = {}             # (src, dst) -> set of dest ports (port-scan IDS)
 
     for line in out.splitlines():
         parts = line.split("\t")
@@ -652,6 +653,9 @@ def capture_traffic(seconds=8, max_rows=120):
         # camera tell
         if proto.upper().startswith("RTSP") or dport in (554, 8554):
             camera_tells.append({"src": src, "dst": dst})
+        # IDS: track distinct dest ports per (src->dst) to spot a port scan
+        if dport and src and dst:
+            scan_track.setdefault((src, dst), set()).add(dport)
         # phone-home: local device -> external destination
         if _is_private(src) and dst and not _is_private(dst):
             talkers[src] = talkers.get(src, 0) + size
@@ -685,16 +689,99 @@ def capture_traffic(seconds=8, max_rows=120):
     dns_top = sorted([{"device": k[0], "query": k[1], "count": v} for k, v in dns_counts.items()],
                      key=lambda x: -x["count"])[:30]
 
+    # IDS-lite: port-scan signature (one source touching many ports on one target)
+    # and a high external-fanout anomaly (a local device contacting many hosts).
+    ids = []
+    for (src, dst), ports in scan_track.items():
+        if len(ports) >= 15:
+            ids.append({"severity": "high" if _is_private(dst) else "medium",
+                        "what": f"Possible PORT SCAN: {src} hit {len(ports)} different ports on {dst}.",
+                        "fix": ("If you didn't run this scan, treat the source as suspicious — "
+                                "isolate it and check what it is.")})
+    for ip, hosts in phone_home.items():
+        if len(hosts) >= 30:
+            ids.append({"severity": "medium",
+                        "what": f"Unusual fan-out: {ip} contacted {len(hosts)} external hosts in "
+                                f"{int(seconds)}s — could be normal (browser/CDN) or scanning/exfil.",
+                        "fix": "Identify the device; if it shouldn't be that chatty, investigate."})
+    ids.sort(key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x["severity"], 3))
+
     return {
         "ok": True, "interface": iface, "seconds": int(seconds), "packets": total,
         "protocols": protocols[:14],
         "encrypted": enc, "plaintext": unenc,
         "dns": dns_top, "phone_home": phone[:12], "top_talkers": top_talkers,
-        "camera_tells": camera_tells[:6],
+        "camera_tells": camera_tells[:6], "ids": ids,
         "rows": rows,
         "note": "Metadata only — who talked to whom, how much, what protocol. "
                 "Message CONTENT is never stored or decoded.",
     }
+
+
+# ===================== detection: ARP-spoof / rogue device ==================
+def _gateway_ip():
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | "
+             "Sort-Object RouteMetric | Select-Object -First 1).NextHop"],
+            capture_output=True, text=True, errors="replace", timeout=8).stdout.strip()
+        if out:
+            return out.splitlines()[0].strip()
+    except Exception:
+        pass
+    lan = _lan_ip()
+    return ".".join(lan.split(".")[:3]) + ".1" if lan else None
+
+
+def arp_audit():
+    """Defensive ARP-table audit for ARP-spoofing / MITM / rogue-gateway signs on
+    YOUR network. The classic spoofing tell is ONE MAC claiming MULTIPLE IPs
+    (especially the gateway's). Read-only — parses the OS ARP cache, sends nothing."""
+    import re
+    try:
+        out = subprocess.run(["arp", "-a"], capture_output=True, text=True,
+                             errors="replace", timeout=10).stdout
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    gw = _gateway_ip()
+    pair = re.compile(r"(\d{1,3}(?:\.\d{1,3}){3})\s+([0-9a-fA-F]{2}(?:[:-][0-9a-fA-F]{2}){5})")
+    mac_ips = {}
+    table = []
+    for line in out.splitlines():
+        m = pair.search(line)
+        if not m:
+            continue
+        ip, mac = m.group(1), m.group(2).lower().replace("-", ":")
+        oct1 = ip.split(".")[0]
+        # skip multicast / broadcast / non-unicast
+        if ip.endswith(".255") or ip.startswith(("224.", "239.", "255.", "0.")):
+            continue
+        if mac in ("ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00") or mac.startswith("01:00:5e"):
+            continue
+        mac_ips.setdefault(mac, set()).add(ip)
+        table.append({"ip": ip, "mac": mac})
+    gw_mac = next((mac for mac, ips in mac_ips.items() if gw in ips), None)
+    findings = []
+    for mac, ips in mac_ips.items():
+        if len(ips) > 1:
+            has_gw = gw in ips
+            findings.append({
+                "severity": "high" if has_gw else "medium",
+                "what": f"MAC {mac} is claiming {len(ips)} IPs ({', '.join(sorted(ips))})"
+                        + (" — INCLUDING the gateway, a strong man-in-the-middle / ARP-spoofing signal."
+                           if has_gw else " — possible ARP spoofing (or a multi-homed device)."),
+                "fix": "If unexpected: disconnect from this network, prefer a wired/VPN connection, "
+                       "power-cycle the router, and check for an unknown device. Confirm the gateway's "
+                       "real MAC with your router.",
+            })
+    if not findings:
+        findings.append({"severity": "info",
+                         "what": f"No duplicate-MAC / ARP-spoofing signs. Gateway {gw or '?'} → "
+                                 f"{gw_mac or 'unknown'}.",
+                         "fix": "Looks clean. Re-check if your connection behaves oddly."})
+    return {"ok": True, "gateway": gw, "gateway_mac": gw_mac,
+            "host_count": len(mac_ips), "findings": findings, "table": table[:60]}
 
 
 def capture_status():
