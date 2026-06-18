@@ -300,6 +300,10 @@ class Station:
                 self.rf.scan_auto(bool(cmd.get("auto", True)))
             elif c == "rf_scan_squelch":
                 self.rf.scan_set_squelch(cmd.get("squelch_db", 8.0))
+            elif c == "rf_baseline_capture":
+                self.rf.capture_rf_baseline()
+            elif c == "rf_baseline_clear":
+                self.rf.clear_rf_baseline()
             else:
                 return {"type": "rf_ack", "ok": False, "reason": "unknown cmd"}
         except Exception as e:

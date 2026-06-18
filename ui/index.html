@@ -767,8 +767,12 @@ function radarZoomBy(f){ radarZoom=Math.max(0.5,Math.min(8,radarZoom*f)); }
   const bb=$('btnBaseline');
   if(bb) bb.onclick=()=>{
     gBaseline=new Map(); B.devices.forEach(d=>gBaseline.set(d.id, smoothOf(d.id)));
-    bb.classList.add('armed'); bb.textContent='⎙ BASELINE SET ('+gBaseline.size+')';
-    setTimeout(()=>{bb.textContent='⎙ RE-CAPTURE BASELINE';},1500); syncDevList();
+    // also snapshot the RF spectrum as the baseline so a NEW transmitter that
+    // appears later (vs this captured environment) gets flagged — captured on the
+    // next full surveillance sweep (~30s).
+    if(rfOnline()) rfSend({cmd:'rf_baseline_capture'});
+    bb.classList.add('armed'); bb.textContent='⎙ BASELINE SET ('+gBaseline.size+(rfOnline()?' + RF':'')+')';
+    setTimeout(()=>{bb.textContent='⎙ RE-CAPTURE BASELINE';},1800); syncDevList();
   };
   const rb=$('btnRefresh');
   if(rb) rb.onclick=()=>{
@@ -1591,7 +1595,13 @@ function drawRadio(){
       if(scan && auto && lk){ lead='<span style="color:var(--amber)">● AUTO-SCAN · holding</span> '; tail=' · resumes shortly · SKIP for next now'; }
       else if(scan && !auto){ lead='<span style="color:var(--clear)">● HOLD</span> '; tail=isCh?' · ◀ PREV / NEXT ▶ to flip · AUTO-SEEK to scan':' · AUTO-SEEK to scan'; }
       else { lead='<span style="color:var(--clear)">● LISTENING</span> '; }
-      stat.innerHTML=lead+(scan?chLabel(scan):B._rf_tuned.center_mhz.toFixed(3)+' MHz')+' · '+B._rf_tuned.demod+tail; }
+      let html=lead+(scan?chLabel(scan):B._rf_tuned.center_mhz.toFixed(3)+' MHz')+' · '+B._rf_tuned.demod+tail;
+      // content-free RF signal characterization (what it looks like, never what it says)
+      const an=B._rf_tuned.analysis;
+      if(an) html+='<br><span style="color:var(--cyan)">SIGNAL</span> ~'+an.bw_khz+' kHz wide · +'+an.over_db
+        +' dB · '+an.continuity+' · <b style="color:var(--ink)">'+an.guess+'</b>'
+        +' <span style="color:var(--dimmer)">— '+an.note+'</span>';
+      stat.innerHTML=html; }
   } else {
     drawNoSignal(g,W,H,'RADIO IDLE','Pick a CHANNELS band to flip through real channels,\nor a SWEEP band to step raw frequencies, or type a freq + LISTEN.\nTuner ~25 MHz – 1.75 GHz · analog only.');
     if(stat) stat.textContent='';

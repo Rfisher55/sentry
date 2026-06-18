@@ -167,6 +167,7 @@ class RFSensor(Sensor):
     SAMPLE_RATE = 2.4e6        # sweep sample rate
     READ_SAMPLES = 16 * 1024   # per tune; smaller keeps a full sweep fast (~10 s)
     PEAK_DB_OVER_FLOOR = 10.0  # first-cut threshold; real-world tuning is ongoing
+    ANOMALY_DB = 8.0           # how much stronger than baseline counts as "new"
     SCAN_PERIOD = 0.5          # brief pause between full sweeps (background thread)
 
     TUNED_GAIN_DB = 30.0       # fixed manual gain for a stable, honest tuned spectrum
@@ -223,6 +224,14 @@ class RFSensor(Sensor):
         self._scan_log = []         # recent hits [{mhz, name, over, t}]
         self._scan_n = 0            # state counter (bumps on update)
         self._scan_cur = None       # latest scan-state dict for the UI
+
+        # --- RF signal characterization (content-free) + baseline/anomaly ---
+        self._char_center = None    # centre the over-history belongs to
+        self._char_hist = collections.deque(maxlen=24)  # recent over-floor dB (continuity)
+        self._rf_baseline = None    # captured sweep spectrum {mhz: db} for anomaly flagging
+        self._rf_baseline_n = 0
+        self._baseline_req = False  # capture the baseline on the next sweep
+        self._rf_anomalies = []     # latest [{mhz, db, delta}] new-vs-baseline
 
     def available(self) -> bool:
         return _HAS_RTL and np is not None
@@ -323,7 +332,26 @@ class RFSensor(Sensor):
         if not spec:
             return
         global_floor = float(np.median(floors))
-        # detections: peaks rising above the floor AND inside a watched band only
+
+        # RF baseline + anomaly: capture the room's normal RF, then flag anything
+        # NEW — the core counter-surveillance "did something just appear?" workflow.
+        with self._lock:
+            if self._baseline_req:
+                self._rf_baseline = {fmhz: peak for fmhz, peak in spec}
+                self._rf_baseline_n += 1
+                self._baseline_req = False
+            baseline = dict(self._rf_baseline) if self._rf_baseline else None
+        anomaly_freqs = {}     # fmhz -> delta dB vs baseline (NEW / much stronger)
+        if baseline:
+            for fmhz, peak in spec:
+                over = peak - global_floor
+                base = baseline.get(fmhz)
+                if over >= self.PEAK_DB_OVER_FLOOR and (
+                        base is None or (peak - base) >= self.ANOMALY_DB):
+                    anomaly_freqs[fmhz] = round(peak - (base if base is not None else global_floor), 1)
+
+        # detections: peaks rising above the floor inside a watched band, plus any
+        # NEW-vs-baseline signal anywhere in range.
         dets = []
         for fmhz, peak in spec:
             over = peak - global_floor
@@ -333,23 +361,45 @@ class RFSensor(Sensor):
             if not band:
                 continue
             lo, hi, kind, cat, sev, note = band
+            is_new = fmhz in anomaly_freqs
             dets.append(Detection(
-                kind=kind, channel="rf", severity=sev, category=cat,
-                ident=f"{fmhz:.1f} MHz · {over:.0f} dB over floor",
-                bandtxt=f"{lo}–{hi} MHz", behaviortxt=note,
+                kind=kind, channel="rf", severity=("alert" if is_new else sev), category=cat,
+                ident=f"{fmhz:.1f} MHz · {over:.0f} dB over floor"
+                      + (f" · NEW (+{anomaly_freqs[fmhz]:.0f} dB vs baseline)" if is_new else ""),
+                bandtxt=f"{lo}–{hi} MHz",
+                behaviortxt=(("Appeared since the RF baseline was captured. " if is_new else "") + note),
                 surveilling=self._surv(cat),
                 cancapture="Energy detected only — identify it up close (SENTRY can't decode content)",
                 capturingnow=f"Transmitting on {fmhz:.1f} MHz now",
                 confidence=min(95, 55 + int(over)),
                 device_type=kind, method="RF (RTL-SDR)",
                 evidence=[f"peak {over:.0f} dB over noise floor at {fmhz:.1f} MHz"],
-                freq_mhz=fmhz, rssi=peak,
+                freq_mhz=fmhz, rssi=peak, is_new=is_new,
+            ))
+        # anomalies OUTSIDE the watched bands — "something new is transmitting here"
+        for fmhz in [f for f in anomaly_freqs if not self._band_for(f)][:10]:
+            delta = anomaly_freqs[fmhz]
+            peak = next((p for m, p in spec if m == fmhz), global_floor)
+            dets.append(Detection(
+                kind="Unidentified transmitter (new)", channel="rf",
+                severity="suspect", category="unknown transmitter",
+                ident=f"{fmhz:.1f} MHz · NEW (+{delta:.0f} dB vs baseline)",
+                bandtxt=f"{fmhz:.1f} MHz",
+                behaviortxt="Not present (or far weaker) when the RF baseline was captured — appeared since.",
+                surveilling="Unknown — newly appeared",
+                cancapture="Energy detected only — not decoded",
+                capturingnow=f"Transmitting on {fmhz:.1f} MHz (new vs baseline)",
+                confidence=min(90, 60 + int(delta)),
+                device_type="Unidentified transmitter", method="RF (RTL-SDR) · baseline anomaly",
+                evidence=[f"+{delta:.0f} dB vs baseline at {fmhz:.1f} MHz"],
+                freq_mhz=fmhz, rssi=peak, is_new=True,
             ))
         dets = self._dedupe_by_band(dets)
         with self._lock:
             self._spectrum = spec
             self._floor = round(global_floor, 1)
             self._dets = dets
+            self._rf_anomalies = [{"mhz": f, "delta": anomaly_freqs[f]} for f in anomaly_freqs]
             self._sweep_n += 1
 
     # ====================== TUNED MODE (live SDR view) =======================
@@ -585,6 +635,7 @@ class RFSensor(Sensor):
         """Build the real spectrum from one IQ block and (optionally) demodulate
         audio, publishing both atomically for the UI/clients."""
         spec = self._periodogram(x, req["center_hz"], fs)
+        spec["analysis"] = self._characterize(spec, fs)   # content-free signal id
         pcm = None
         if audio:
             pcm, arate = self._demodulate(x, fs, req["demod"])
@@ -834,6 +885,75 @@ class RFSensor(Sensor):
                 "audio_rate": self._audio_rate,
             }
 
+    def _characterize(self, spec, fs):
+        """Content-free RF characterization of the tuned signal: occupied
+        bandwidth (−10 dB), strength over the noise floor, continuity (continuous
+        vs bursting, from recent frames), and a HONEST modulation/type GUESS from
+        the spectral SHAPE + band. It describes 'something is transmitting here,
+        like this' — it never decodes or reveals content."""
+        pts = spec.get("points") or []
+        pk = spec.get("peak"); floor = spec.get("floor")
+        if not pts or pk is None or floor is None:
+            return None
+        dbs = [p[1] for p in pts]
+        n = len(dbs)
+        pk_db = pk["db"]; over = round(pk_db - floor, 1)
+        # find the peak bin, then the contiguous OCCUPIED span around it. Use a
+        # threshold relative to the noise floor (floor + 6 dB), capped to peak-25 dB
+        # — this captures the real occupied bandwidth (e.g. FM's wide sidebands)
+        # rather than just the narrow tip at the carrier.
+        pk_i = max(range(n), key=lambda i: dbs[i])
+        thr = max(floor + 6.0, pk_db - 25.0)
+        lo = pk_i
+        while lo > 0 and dbs[lo - 1] > thr:
+            lo -= 1
+        hi = pk_i
+        while hi < n - 1 and dbs[hi + 1] > thr:
+            hi += 1
+        bin_hz = fs / float(n)
+        bw_hz = (hi - lo + 1) * bin_hz
+        bw_khz = round(bw_hz / 1000.0, 1)
+        center = spec.get("center_mhz")
+        # continuity from recent over-floor history at this centre
+        if self._char_center != center:
+            self._char_center = center; self._char_hist.clear()
+        self._char_hist.append(over)
+        h = list(self._char_hist)
+        present = sum(1 for v in h if v >= 6.0)
+        duty = present / len(h) if h else 0.0
+        if len(h) < 4:
+            continuity = "measuring…"
+        elif duty >= 0.85:
+            continuity = "continuous carrier"
+        elif duty <= 0.15:
+            continuity = "quiet (no steady signal)"
+        else:
+            continuity = "intermittent / bursting"
+        # modulation/type GUESS from bandwidth + band + strength (clearly a guess)
+        if over < 6:
+            guess = "no clear signal above the noise"
+        elif bw_khz < 3:
+            guess = "narrow carrier / CW / beacon / tone"
+        elif bw_khz < 20:
+            guess = "narrowband — NFM voice or data burst (ham/FRS/GMRS/business)"
+        elif bw_khz < 60:
+            guess = "narrow data / paging-class signal"
+        elif bw_khz < 300:
+            guess = "wideband FM — broadcast or wideband voice"
+        else:
+            guess = "very wide — analog video or wideband data"
+        # band context sharpens the guess
+        if center is not None:
+            if 87.5 <= center <= 108 and bw_khz >= 80:
+                guess = "broadcast FM (WFM) — wide audio"
+            elif 118 <= center <= 137:
+                guess = "AM voice (aviation/air band)" if over >= 6 else guess
+            elif (313 <= center <= 317 or 433 <= center <= 435) and continuity.startswith("interm"):
+                guess = "ISM burst — likely a key-fob/remote/sensor (OOK/FSK)"
+        return {"bw_khz": bw_khz, "over_db": over, "continuity": continuity,
+                "guess": guess,
+                "note": "Guess from RF shape only — content is NOT decoded or revealed."}
+
     def _periodogram(self, x, center_hz, fs):
         """Real averaged power spectrum across the tuned span, peak-held down to
         SPEC_BINS display points so narrow carriers stay visible."""
@@ -947,7 +1067,21 @@ class RFSensor(Sensor):
             return {"n": self._sweep_n, "floor": self._floor,
                     "low_mhz": self.TUNER_LOW_MHZ, "high_mhz": self.TUNER_HIGH_MHZ,
                     "bands": [[b[0], b[1]] for b in BANDS],
-                    "points": list(self._spectrum)}
+                    "points": list(self._spectrum),
+                    "baseline_n": self._rf_baseline_n,
+                    "baseline_set": self._rf_baseline is not None,
+                    "anomalies": list(self._rf_anomalies)}
+
+    def capture_rf_baseline(self):
+        """Snapshot the current full-range RF spectrum as the baseline; later
+        sweeps flag anything NEW or much stronger than it."""
+        with self._lock:
+            self._baseline_req = True
+
+    def clear_rf_baseline(self):
+        with self._lock:
+            self._rf_baseline = None
+            self._rf_anomalies = []
 
     def _scan_listening(self):
         """True when the scanner is producing audio: manual HOLD (always listens,
