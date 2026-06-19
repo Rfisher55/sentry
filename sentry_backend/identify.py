@@ -104,7 +104,17 @@ NAME_HINTS = [
     ("sony", "Sony audio"), ("jbl", "JBL speaker"), ("soundlink", "Bose speaker"),
     ("tv", "Television"), ("roku", "Roku TV/stick"), ("firetv", "Fire TV"),
     ("chromecast", "Chromecast"), ("nest", "Nest device"),
-    ("ring", "Ring device"), ("wyze", "Wyze camera"), ("cam", "Camera"),
+    ("ring", "Ring device"), ("wyze", "Wyze camera"),
+    # extended camera / IoT brands (matched on the device's own advertised name)
+    ("reolink", "Reolink camera"), ("eufycam", "Eufy camera"), ("eufy", "Eufy camera/doorbell"),
+    ("blink", "Blink camera"), ("tapo", "TP-Link Tapo camera"), ("ezviz", "Ezviz camera"),
+    ("lorex", "Lorex camera"), ("annke", "Annke camera"), ("amcrest", "Amcrest camera"),
+    ("hikvision", "Hikvision camera"), ("dahua", "Dahua camera"), ("foscam", "Foscam camera"),
+    ("arlo", "Arlo camera"), ("nanit", "Nanit baby monitor (camera)"), ("smartcam", "Smart camera"),
+    ("ipcam", "IP camera"), ("switchbot", "SwitchBot device"), ("shelly", "Shelly smart switch"),
+    ("sonoff", "Sonoff smart switch"), ("lifx", "LIFX smart light"), ("kasa", "TP-Link Kasa device"),
+    ("smartthings", "Samsung SmartThings hub"), ("meross", "Meross smart device"),
+    ("cam", "Camera"),
     ("printer", "Printer"), ("hp ", "HP printer"), ("epson", "Epson printer"),
     ("hue", "Philips Hue light"), ("govee", "Govee smart light"),
     ("ihoment", "Govee/iHoment smart light"), ("bulb", "Smart bulb"),
@@ -122,6 +132,15 @@ NAME_HINTS = [
 HOST_HINTS = [
     ("ringstickup", "Ring camera", True), ("doorbell", "Video doorbell", True),
     ("nestcam", "Nest camera", True), ("wyzecam", "Wyze camera", True),
+    # extended camera brands by reverse-DNS hostname (specific first)
+    ("reolink", "Reolink camera", True), ("eufycam", "Eufy camera", True),
+    ("blinkcam", "Blink camera", True), ("blink", "Blink camera", True),
+    ("tapo", "TP-Link Tapo camera", True), ("ezviz", "Ezviz camera", True),
+    ("lorex", "Lorex camera", True), ("annke", "Annke camera", True),
+    ("amcrest", "Amcrest camera", True), ("hikvision", "Hikvision camera", True),
+    ("dahua", "Dahua camera", True), ("foscam", "Foscam camera", True),
+    ("arlo", "Arlo camera", True), ("nanit", "Nanit baby monitor", True),
+    ("eufy", "Eufy device", False),
     ("wyze", "Wyze device", False), ("ringchime", "Ring chime", False),
     ("ring", "Ring device", False), ("ipcam", "IP camera", True),
     ("ipcamera", "IP camera", True), ("cam", "IP camera", True),
@@ -419,6 +438,10 @@ def identify(*, mac="", name="", vendor=None, ble_manufacturer=None,
         dtype = nt if (dtype is None or dtype in ("Apple device", "Windows / Microsoft device")) else dtype
         conf += 22
         evidence.append(f'advertised name "{name}"')
+        # a name that resolves to a camera/doorbell type IS a camera tell
+        if ("camera" in nt.lower() or "doorbell" in nt.lower()) and not is_camera:
+            is_camera = True
+            evidence.append("camera-class device name")
     elif name:
         evidence.append(f'name "{name}"')
         conf += 5
@@ -430,6 +453,9 @@ def identify(*, mac="", name="", vendor=None, ble_manufacturer=None,
             dtype = dtype or st
             conf += 12
             evidence.append(f'SSID "{ssid}"')
+            if ("camera" in st.lower() or "doorbell" in st.lower()) and not is_camera:
+                is_camera = True
+                evidence.append("camera-class SSID")
 
     # (E2) LAN hostname / UPnP server string — often the best clue for a wired/
     # Wi-Fi device that answers no ports (e.g. "RingStickUpCam-0a" → Ring camera).
