@@ -1009,11 +1009,13 @@ const STATUS_BADGE={
   live:{t:'LIVE',c:'#3FB984',bg:'#10271d'},
   partial:{t:'PARTIAL',c:'#48C9E0',bg:'#0e2630'},
   hardware:{t:'NEEDS RTL-SDR',c:'#F2A93B',bg:'#2a1f0c'},
+  antenna:{t:'NEEDS ANTENNA',c:'#F2A93B',bg:'#2a1f0c'},
   planned:{t:'NOT BUILT YET',c:'#8FA3B8',bg:'#1b2128'}};
 const STATUS_LINE={
   live:'Works now with your built-in hardware.',
   partial:'Device discovery works now; the deeper analysis it describes is not built yet.',
   hardware:'Needs an RTL-SDR dongle (~$45) — not detecting until one is plugged in.',
+  antenna:'Requires a directional antenna or KrakenSDR for true bearing — distance-only works now.',
   planned:'Not built yet — needs added hardware and code. Listed as a roadmap item, not a working tool.'};
 // reflect REAL runtime state: if the sensor for this channel is actually online
 // (e.g. an RTL-SDR got plugged in), show LIVE — don't keep saying "needs hardware".
@@ -1023,9 +1025,24 @@ function chStatus(id){ return sensorOnline(id) ? 'live' : (CH_STATUS[id]||'plann
 // "RTL-SDR detected but in use by another app" vs "no dongle — plug one in").
 function sensorNote(ch){ const s=(B._sensors||[]).find(x=>x.channel===ch); return (s&&!s.online&&s.note)?s.note:''; }
 function liveHint(ch,st){ const note=sensorNote(ch); return note || STATUS_LINE[st] || ''; }
+// Specific, honest hardware/install requirement per tool (Phase C honesty pass).
+const TOOL_REQUIRES={
+  df:'Requires a directional antenna or KrakenSDR for true bearing — SENTRY shows distance-only until then.',
+  imsi:'Requires a HackRF or cellular-survey modem — the NESDR Mini can’t survey cell towers.',
+  nfc:'Requires a PN532 NFC/RFID module (USB/Pi).',
+  ir:'Requires an IR photodiode / IR camera.',
+  emf:'Requires a magnetometer + EMF coil probe.',
+  lens:'Requires an IR LED ring + camera (Pi build).',
+  thermal:'Requires a thermal camera module (MLX90640 / FLIR Lepton).',
+  gnss:'Requires a GNSS receiver.',
+  power:'Requires an isolated power-line coupler.',
+  nljd:'Requires dedicated NLJD hardware.',
+  gpio:'Requires Raspberry Pi GPIO pins (Pi-only).'};
+function toolHint(id,st){ if(st!=='live'&&st!=='partial'&&TOOL_REQUIRES[id]) return TOOL_REQUIRES[id]; return liveHint(TOOL_CH[id]||((B.tools.find(t=>t.id===id)||{}).channel), st); }
 const TOOL_CH={spectrum:'rf',rfbaseline:'rf',burst:'rf',df:'rf',wifi:'wifi',ble:'bluetooth',network:'network'};
 function toolStatus(id){
   if(id==='acoustic') return 'live';   // real laptop-mic ultrasonic detector (browser)
+  if(id==='df') return 'antenna';      // RF present, but true bearing needs a directional antenna
   const ch=TOOL_CH[id];
   if(ch && sensorOnline(ch)) return id==='network' ? 'partial' : 'live';
   return TOOL_STATUS[id]||'planned';
@@ -1043,7 +1060,7 @@ function renderToolGrid(){
       '<span class="cc">'+statusBadge(st)+'</span></h3>'+
       '<p>'+t.what+'</p>'+
       (live?'<p style="font-size:10.5px;color:var(--dim);margin-top:5px">'+(n>0?n+' detection'+(n===1?'':'s')+' now':'clear right now')+'</p>'
-           :'<p style="font-size:10.5px;color:'+STATUS_BADGE[st].c+';margin-top:5px">'+liveHint(TOOL_CH[t.id]||t.channel, st)+'</p>')+
+           :'<p style="font-size:10.5px;color:'+STATUS_BADGE[st].c+';margin-top:5px">'+toolHint(t.id, st)+'</p>')+
       '<div class="open">Open ›</div></div>';
   }).join('');
   $('toolgrid').querySelectorAll('.card').forEach(c=>c.onclick=()=>openTool(c.dataset.tool));
@@ -1129,7 +1146,7 @@ function openTool(id){
     rows='<div class="emptytool">No detections on the '+t.name+' channel right now.<br><br>'+
       '<b>This tool only reads its own channel.</b> Other signal types show under their own tools.</div>';
   } else {
-    rows='<div class="emptytool">This tool is <b>'+STATUS_BADGE[st].t+'</b>.<br><br>'+liveHint(TOOL_CH[id]||t.channel, st)+'</div>';
+    rows='<div class="emptytool">This tool is <b>'+STATUS_BADGE[st].t+'</b>.<br><br>'+toolHint(id, st)+'</div>';
   }
 
   $('toolBody').innerHTML=
