@@ -98,6 +98,14 @@
   /* ===== CHANNELS ===== */
   #channels{flex-direction:column;overflow-y:auto;padding:16px;align-items:center}
   .chgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;max-width:1000px;width:100%}
+  /* collapsed "Future sensors (need hardware)" group — spans the grid, closed by default */
+  .futuregrp{grid-column:1/-1;max-width:1000px;width:100%;margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
+  .futuregrp>summary{cursor:pointer;color:var(--dim);font-size:11px;font-weight:700;letter-spacing:.04em;list-style:none;padding:7px 2px;user-select:none}
+  .futuregrp>summary::-webkit-details-marker{display:none}
+  .futuregrp>summary::before{content:'▸ ';color:var(--cyan)}
+  .futuregrp[open]>summary{color:var(--ink)}
+  .futuregrp[open]>summary::before{content:'▾ '}
+  .futgrid{margin-top:10px}
   .chcard{background:var(--slate2);border:1px solid var(--line);border-radius:11px;padding:14px;cursor:pointer;transition:border-color .15s}
   .chcard:hover{border-color:var(--cyan)}
   .chcard .top{display:flex;align-items:center;gap:9px}
@@ -1052,34 +1060,50 @@ function statusBadge(st){ const b=STATUS_BADGE[st]||STATUS_BADGE.planned;
 function statusBanner(st,ch){ if(st==='live') return ''; const b=STATUS_BADGE[st];
   return '<div style="background:'+b.bg+';border:1px solid '+b.c+'66;color:'+b.c+';padding:9px 11px;border-radius:7px;font-size:11.5px;line-height:1.45;margin-bottom:8px">'+statusBadge(st)+' &nbsp;'+(ch?liveHint(ch,st):(STATUS_LINE[st]||''))+'</div>'; }
 
+function toolCard(t){
+  const st=toolStatus(t.id), live=(st==='live'||st==='partial');
+  const n=B.devices.filter(d=>d.channel===t.channel).length;
+  return '<div class="card" data-tool="'+t.id+'"><h3><span class="ic"></span>'+t.name+
+    '<span class="cc">'+statusBadge(st)+'</span></h3>'+
+    '<p>'+t.what+'</p>'+
+    (live?'<p style="font-size:10.5px;color:var(--dim);margin-top:5px">'+(n>0?n+' detection'+(n===1?'':'s')+' now':'clear right now')+'</p>'
+         :'<p style="font-size:10.5px;color:'+STATUS_BADGE[st].c+';margin-top:5px">'+toolHint(t.id, st)+'</p>')+
+    '<div class="open">Open ›</div></div>';
+}
 function renderToolGrid(){
-  $('toolgrid').innerHTML=B.tools.map(t=>{
-    const st=toolStatus(t.id), live=(st==='live'||st==='partial');
-    const n=B.devices.filter(d=>d.channel===t.channel).length;
-    return '<div class="card" data-tool="'+t.id+'"><h3><span class="ic"></span>'+t.name+
-      '<span class="cc">'+statusBadge(st)+'</span></h3>'+
-      '<p>'+t.what+'</p>'+
-      (live?'<p style="font-size:10.5px;color:var(--dim);margin-top:5px">'+(n>0?n+' detection'+(n===1?'':'s')+' now':'clear right now')+'</p>'
-           :'<p style="font-size:10.5px;color:'+STATUS_BADGE[st].c+';margin-top:5px">'+toolHint(t.id, st)+'</p>')+
-      '<div class="open">Open ›</div></div>';
-  }).join('');
+  const isLive=t=>{const s=toolStatus(t.id);return s==='live'||s==='partial';};
+  const working=B.tools.filter(isLive), future=B.tools.filter(t=>!isLive(t));
+  let html=working.map(toolCard).join('');
+  if(future.length){
+    html+='<details class="futuregrp"><summary>Future sensors — need added hardware ('+future.length+', honestly labeled)</summary>'+
+      '<div class="grid futgrid">'+future.map(toolCard).join('')+'</div></details>';
+  }
+  $('toolgrid').innerHTML=html;
   $('toolgrid').querySelectorAll('.card').forEach(c=>c.onclick=()=>openTool(c.dataset.tool));
 }
 
 // ---------- CHANNELS GRID ----------
+function channelCard(c){
+  const st=chStatus(c.id), live=(st==='live'||st==='partial');
+  const n=B.devices.filter(d=>d.channel===c.id).length;
+  const col=!live?'var(--dimmer)':(n>0?'var(--suspect)':'var(--clear)');
+  return '<div class="chcard" data-ch="'+c.id+'"><div class="top"><span class="dot" style="background:'+col+'"></span>'+
+    '<h3>'+c.name+'</h3><span class="band">'+c.band+'</span></div>'+
+    '<div style="margin-top:6px">'+statusBadge(st)+'</div>'+
+    '<div class="cnt" style="color:'+col+'">'+(live?(n>0?n+' detection'+(n===1?'':'s'):'clear'):'not detecting')+'</div>'+
+    '<p>'+c.catches+'</p>'+
+    '<div class="hw">Hardware: '+c.hw+(st!=='live'?' — '+liveHint(c.id, st):'')+'</div>'+
+    '<div class="open" style="margin-top:8px;font-family:JetBrains Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open ›</div></div>';
+}
 function renderChannels(){
-  $('chgrid').innerHTML=B.channels.map(c=>{
-    const st=chStatus(c.id), live=(st==='live'||st==='partial');
-    const n=B.devices.filter(d=>d.channel===c.id).length;
-    const col=!live?'var(--dimmer)':(n>0?'var(--suspect)':'var(--clear)');
-    return '<div class="chcard" data-ch="'+c.id+'"><div class="top"><span class="dot" style="background:'+col+'"></span>'+
-      '<h3>'+c.name+'</h3><span class="band">'+c.band+'</span></div>'+
-      '<div style="margin-top:6px">'+statusBadge(st)+'</div>'+
-      '<div class="cnt" style="color:'+col+'">'+(live?(n>0?n+' detection'+(n===1?'':'s'):'clear'):'not detecting')+'</div>'+
-      '<p>'+c.catches+'</p>'+
-      '<div class="hw">Hardware: '+c.hw+(st!=='live'?' — '+liveHint(c.id, st):'')+'</div>'+
-      '<div class="open" style="margin-top:8px;font-family:JetBrains Mono;font-size:10px;color:var(--cyan);letter-spacing:.05em">Open ›</div></div>';
-  }).join('');
+  const isLive=c=>{const s=chStatus(c.id);return s==='live'||s==='partial';};
+  const working=B.channels.filter(isLive), future=B.channels.filter(c=>!isLive(c));
+  let html=working.map(channelCard).join('');
+  if(future.length){
+    html+='<details class="futuregrp"><summary>Future channels — need added hardware ('+future.length+', honestly labeled)</summary>'+
+      '<div class="chgrid futgrid">'+future.map(channelCard).join('')+'</div></details>';
+  }
+  $('chgrid').innerHTML=html;
   $('chgrid').querySelectorAll('.chcard').forEach(el=>el.onclick=()=>openChannel(el.dataset.ch));
 }
 
