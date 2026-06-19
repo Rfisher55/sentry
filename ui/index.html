@@ -454,6 +454,28 @@
       <div style="font-family:'JetBrains Mono';font-size:11px;background:#11202a;border:1px solid #1e3a44;border-radius:8px;padding:8px 11px;color:var(--cyan)">
         🕵 Every device SENTRY flags as <b>watching, listening to, or tracking you</b> — ranked by threat, with what it can capture and what to do. <b>Detect &amp; locate only:</b> find it, then <b>remove it from your own space or report it</b> — SENTRY never jams, hacks, or attacks (that's illegal and escalates risk).
       </div>
+      <details id="sweepWrap" style="background:var(--slate2);border:1px solid var(--line);border-radius:8px;padding:4px 11px">
+        <summary style="cursor:pointer;color:var(--amber);font-weight:700;font-size:12px;padding:6px 0;list-style:none">🏨 Hotel / Airbnb sweep mode — guided arrival check</summary>
+        <div style="padding:4px 0 8px">
+          <div style="color:var(--dim);font-size:10.5px;line-height:1.5;margin-bottom:7px">When you check into a room: capture an <b>arrival baseline</b>, then anything that appears <b>after</b> you arrived (a camera waking up, a phone re-joining) is flagged as NEW. Plus a physical checklist for the cameras radio can't see.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:7px">
+            <button id="swStart" class="ibtn">▶ START SWEEP (baseline)</button>
+            <button id="swStop" class="ibtn" style="padding:4px 9px">■ STOP</button>
+          </div>
+          <div id="swStatus" style="font-family:'JetBrains Mono';font-size:11px;color:var(--dimmer);margin-bottom:6px">Not started. Capture a baseline as soon as you arrive.</div>
+          <div id="swNew" style="font-family:'JetBrains Mono';font-size:11px"></div>
+          <div style="margin-top:8px;border-top:1px solid var(--line);padding-top:7px">
+            <div class="sidehd" style="color:var(--cyan);margin-bottom:4px">Physical checklist (radio can't see an offline/recording-only camera)</div>
+            <div style="font-size:10.5px;color:var(--dim);line-height:1.6">
+              ☐ Look at smoke detectors, alarm clocks, air purifiers, USB chargers &amp; outlets facing the bed/shower<br>
+              ☐ Phone-camera trick: in a dark room, look through your phone camera for IR LED glow (night-vision cams)<br>
+              ☐ Check mirrors for two-way glass (fingernail gap test)<br>
+              ☐ Look for tiny lenses (pinholes) in vents, decor, picture frames, plants<br>
+              ☐ Unplug/cover anything suspicious you control; photograph &amp; report what you don't — don't dismantle others' property
+            </div>
+          </div>
+        </div>
+      </details>
       <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-family:'JetBrains Mono';font-size:11px;color:var(--dim)">
         <span id="watchCount" style="color:var(--clear);font-weight:600">Scanning…</span>
         <span style="color:var(--dimmer)">·</span>
@@ -2124,6 +2146,7 @@ function watchLocate(id){ const d=watchFind(id); if(d&&typeof openLocate==='func
 function watchOpen(id){ if(watchFind(id)&&typeof selectDevice==='function') selectDevice(id); }
 function watchLog(id){ const d=watchFind(id); if(d) evAdd(d,'logged from Watchers'); }
 function watchRender(){
+  if(typeof swRender==='function') swRender();
   const host=$('watchList'), cnt=$('watchCount'); if(!host) return;
   const s=watchSuspects();
   if(cnt) cnt.textContent=s.length?(s.length+' watcher'+(s.length===1?'':'s')+' detected'):'No watchers detected right now';
@@ -2146,7 +2169,33 @@ function watchRender(){
       +'</div></div>';
   }).join('');
 }
-function startWatchers(){ watchRender(); if(_watchTimer) clearInterval(_watchTimer); _watchTimer=setInterval(watchRender,2000); }
+// ----- Hotel/Airbnb sweep mode: baseline on arrival, flag what appears AFTER -----
+let _sweep={active:false, t:0, ids:null};
+function swStart(){
+  _sweep={active:true, t:Date.now(), ids:new Set((B.devices||[]).map(d=>d.id))};
+  swRender();
+}
+function swStop(){ _sweep={active:false,t:0,ids:null}; swRender(); }
+function swRender(){
+  const st=$('swStatus'), nw=$('swNew'); if(!st) return;
+  if(!_sweep.active){ st.textContent='Not started. Capture a baseline as soon as you arrive.'; if(nw)nw.innerHTML=''; return; }
+  const mins=Math.max(0,Math.round((Date.now()-_sweep.t)/60000));
+  const fresh=(B.devices||[]).filter(d=>!_sweep.ids.has(d.id));
+  const watchers=fresh.filter(d=>typeof isWatcher==='function'&&isWatcher(d));
+  st.innerHTML='<span style="color:var(--clear)">● Sweep running</span> · baseline '+_sweep.ids.size+' devices, '+mins+' min ago · <b style="color:'+(fresh.length?'var(--amber)':'var(--clear)')+'">'+fresh.length+' new since arrival</b>'+(watchers.length?' ('+watchers.length+' look like watchers)':'');
+  if(!nw) return;
+  if(!fresh.length){ nw.innerHTML='<div style="color:var(--clear);font-size:10.5px">Nothing new has appeared since you arrived. ✓</div>'; return; }
+  nw.innerHTML=fresh.slice(0,20).map(d=>{
+    const watch=(typeof isWatcher==='function'&&isWatcher(d)), c=watch?'var(--alert)':'var(--dimmer)';
+    return '<div style="font-size:10.5px;color:'+c+';padding:1px 0">'+(watch?'⚠ ':'+ ')+(d.kind||'device')+' <span style="color:var(--dimmer)">· '+(d.method||d.channel||'')+(d.maker&&d.maker!=='Not announced'?' · '+d.maker:'')+'</span>'
+      +(watch?' <button onclick="watchLog(\''+d.id+'\')" style="background:#11171e;color:var(--amber);border:1px solid #5a4416;border-radius:3px;padding:0 6px;cursor:pointer;font-family:inherit;font-size:9px">log</button>':'')+'</div>';
+  }).join('');
+}
+function startWatchers(){
+  const a=$('swStart'); if(a&&!a._w){ a._w=1; a.onclick=swStart; }
+  const o=$('swStop'); if(o&&!o._w){ o._w=1; o.onclick=swStop; }
+  watchRender(); if(_watchTimer) clearInterval(_watchTimer); _watchTimer=setInterval(watchRender,2000);
+}
 function stopWatchers(){ if(_watchTimer){ clearInterval(_watchTimer); _watchTimer=null; } }
 
 // ================= EVIDENCE — follow-test + timestamped log ===================
