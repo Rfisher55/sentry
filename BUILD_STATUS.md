@@ -154,3 +154,24 @@ Found by walking the whole app. Everything here is buildable with the current ki
 **Explicitly NOT building (needs hardware — stays labeled):** direction-finding
 bearing (antenna/KrakenSDR), cellular/IMSI + 2.4/5.8 GHz RF (HackRF), NFC (PN532),
 IR, EMF, optical lens, thermal, GNSS, power-line, NLJD, GPIO.
+
+---
+
+## SOFTWARE-ONLY BUILD SESSION 2 — RESULTS (committed locally, NOT pushed)
+
+| # | Built | Verified |
+|---|---|---|
+| 1 | **Non-Apple BLE tracker detection** — Tile, Samsung Galaxy SmartTag, Chipolo, Pebblebee (svc-UUID + name). Same honest "can't confirm following from a stationary scan" handling as Apple. | Tile/Samsung/Chipolo/Pebblebee → tracker; "Reptile"/"Versatile"/"Bose" NOT flagged (no false positives). |
+| 2 | **Many more camera/IoT brands** in the classifier — Reolink, Eufy, Blink, TP-Link Tapo, Ezviz, Lorex, Annke, Amcrest, Hikvision, Dahua, Foscam, Arlo, Nanit + SwitchBot/Shelly/Sonoff/LIFX/Kasa/SmartThings/Meross. A name/SSID that resolves to a camera type now sets is_camera. Curated name/hostname strings only — no fabricated OUIs. | Existing suite still 16/16; Reolink/EufyCam/Tapo/Ezviz flagged as cameras across name/SSID/hostname; Shelly/SwitchBot/MacBook NOT cameras. |
+| 3 | **Acoustic detector enrichment** — sensitivity slider (8–30 dB), peak-hold trace (+RESET), timestamped detected-tone log. | Fake-mic: slider set threshold, peak-hold built, a sustained 17.2 kHz tone logged with timestamp/freq/dB, mic released on close. |
+| 4 | **Hotel/Airbnb sweep mode** (Alerts tab) — capture arrival baseline, flag anything NEW since arrival (watchers in red, one-tap evidence log), + physical-search checklist for offline cameras. | START captured a 100-device baseline; an injected camera flagged "1 new since arrival (1 watcher)"; STOP resets. |
+
+**Honesty confirmed:** nothing requiring absent hardware was built or faked. The
+hardware-only tools stay in the collapsed "Future sensors (need hardware)" group
+with their specific requirement (HackRF / antenna / PN532 / thermal / Pi…). No
+fabricated OUIs were added (camera-brand detection uses the device's own advertised
+name/hostname, which is real data it broadcasts).
+
+**Status:** 6 commits from this session are LOCAL only (4 builds + 2 audit/summary).
+Combined with the prior overnight batch, nothing is on GitHub since you last pushed.
+**Waiting for your OK to push** (push is re-blocked until you say so).
