@@ -15,6 +15,7 @@ from sentry_backend.sensor import Sensor, Detection
 from sentry_backend import identify
 import time
 import threading
+import re
 
 try:
     import asyncio
@@ -24,6 +25,13 @@ except Exception:
     _HAS_BLE = False
 
 APPLE_COMPANY_ID = 0x004C   # Apple — Find My / AirTag advertisements
+
+# Non-Apple item-trackers, by their advertised 16-bit service UUID + name. These
+# are public adverts the tags broadcast; we still NEVER infer "following you" from
+# a stationary scan (same honest handling as Apple Find My).
+TRACKER_SERVICE_UUIDS = {0xFEED: "Tile", 0xFEEC: "Tile",
+                         0xFD5A: "Samsung Galaxy SmartTag", 0xFD59: "Samsung Galaxy SmartTag"}
+TRACKER_NAME_RE = re.compile(r"\b(tile|chipolo|smart ?tag|pebblebee)", re.I)
 _STALE_AFTER = 45.0         # GRACE: keep a device this long after its last advert,
                             # so an intermittently-advertising device doesn't vanish
                             # just because one scan cycle didn't hear it.
@@ -199,6 +207,38 @@ class BLESensor(Sensor):
                     capturingnow="Advertising on the Find My network",
                     confidence=55, rssi=rssi,
                 )
+
+        # Non-Apple item-trackers (Tile, Samsung Galaxy SmartTag, Chipolo,
+        # Pebblebee) by advertised service UUID or name. Same honest handling: a
+        # stationary scan can't prove "following you" — report it as a nearby beacon.
+        brand = None
+        for u in svc16:
+            if u in TRACKER_SERVICE_UUIDS:
+                brand = TRACKER_SERVICE_UUIDS[u]
+                break
+        if not brand and name:
+            m = TRACKER_NAME_RE.search(name)
+            if m:
+                kw = m.group(1).lower().replace(" ", "")
+                brand = {"tile": "Tile", "chipolo": "Chipolo", "smarttag": "Samsung Galaxy SmartTag",
+                         "pebblebee": "Pebblebee"}.get(kw, name)
+        if brand:
+            return det(
+                kind=f"{brand} tracker (nearby)", channel="bluetooth",
+                severity="notable", category="tracker",
+                maker=brand.split()[0], model=name or brand, mac=addr,
+                ident=f"{brand} item-tracker beacon", bandtxt="2.4 GHz",
+                device_type=f"{brand} item-tracker",
+                behaviortxt=(f"{brand} item-tracker advertising nearby (seen {rec['count']}× "
+                             f"over {int(age)}s). Could be your own or a passing one — a "
+                             "stationary scan can't tell. To check if it's following you, "
+                             "open Locate and move around: a real follower stays strong as "
+                             "you change rooms or locations."),
+                surveilling="Your location — only if it's a tag you're unknowingly carrying",
+                cancapture="Location via its finding network (only if it's a tag on you)",
+                capturingnow="Advertising as an item-tracker",
+                confidence=58, rssi=rssi,
+            )
 
         # Everything else: primary label is the DEVICE TYPE / its real name.
         return det(
