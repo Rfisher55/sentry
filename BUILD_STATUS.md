@@ -132,3 +132,25 @@ tiles under a collapsible "Future sensors (need hardware)" section so the workin
 tools stand out; the most niche are GPIO Lab, Power-line, NLJD.
 
 **Nothing has been pushed to GitHub.** Local commits are ready; tell me when to push.
+
+---
+
+## SOFTWARE-ONLY OPPORTUNITY RE-AUDIT (current kit — NESDR Mini + Wi-Fi/BT + installed tools)
+
+Found by walking the whole app. Everything here is buildable with the current kit
+(no HackRF / antenna / Pi sensors). Items needing absent hardware are NOT listed
+(they stay honestly labeled in the UI). Build order = top to bottom.
+
+| # | Opportunity | Why it's software-only | Plan |
+|---|---|---|---|
+| 1 | **Deeper BLE tracker detection** — today only Apple Find My is flagged. Add Tile, Samsung Galaxy SmartTag, Chipolo, Pebblebee (service-UUID + name signatures). | Pure advert parsing of data devices already broadcast | BUILD |
+| 2 | **More camera / IoT vendor IDs** — extend the OUI/vendor + name classifier (Reolink, Amcrest, Eufy, Blink, Lorex, Annke, Tapo, SwitchBot…) for richer Wi-Fi/LAN device ID. | Curated lookup tables | BUILD |
+| 3 | **Acoustic detector enrichment** — adjustable sensitivity, peak-hold trace, and an event log of detected ultrasonic tones. | Browser Web Audio only | BUILD |
+| 4 | **Hotel / Airbnb sweep mode** — a guided workflow: capture an arrival baseline, then watch for NEW devices/cameras and review them. Orchestrates existing detection. | UX over existing baseline + new-device data | BUILD |
+| 5 | Cross-channel "what's new since baseline" already exists via the CAPTURE BASELINE + NEW/CHANGED filter; #4 surfaces it better. | — | Folded into #4 |
+| 6 | Network depth (DNS log, phone-home map, top-talkers, new-port change-tracking) already built with tshark/nmap. | — | Already done |
+| 7 | UX/theme consistency pass on any new UI. | — | As built |
+
+**Explicitly NOT building (needs hardware — stays labeled):** direction-finding
+bearing (antenna/KrakenSDR), cellular/IMSI + 2.4/5.8 GHz RF (HackRF), NFC (PN532),
+IR, EMF, optical lens, thermal, GNSS, power-line, NLJD, GPIO.
