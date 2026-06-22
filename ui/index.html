@@ -2268,6 +2268,13 @@ function startNetwork(){
   netWire(); B._net_capture=B._net_capture||null; netRenderCapture(); netRenderNmapStatus(); netBuildDevList();
   rfSend({cmd:'net_capture_status'});
   rfSend({cmd:'net_nmap_status'});
+  // re-show the last results when re-opening the tab (and the demo sample data)
+  const L=B._net_last;
+  if(L){
+    if(L.nmap&&typeof netRenderNmap==='function') netRenderNmap(L.nmap);
+    if(L.traffic&&typeof netRenderTraffic==='function'){ const w=$('netTrafficWrap'); if(w)w.style.display='block'; netRenderTraffic(L.traffic); }
+    if(L.arp&&typeof netRenderArp==='function') netRenderArp(L.arp);
+  }
 }
 
 // ================= WATCHERS — counter-surveillance command center ============
@@ -2949,10 +2956,79 @@ function connectBackend(){
   ws.onclose=()=>{ liveConnected=false; setConnState(false); scheduleReconnect(); };  // drop → banner + retry
   ws.onerror=()=>{ setConnState(false); try{ ws.close(); }catch(e){} };   // → onclose → reconnect
 }
+// ================= DEMO SHOWCASE DATA (only when no live backend) =============
+// Fills EVERY tab with rich, realistic sample data so the public/demo build looks
+// complete (great for screenshots). The DEMO banner stays up the whole time —
+// this is clearly labelled sample data, never passed off as a real detection. It
+// runs ONLY if no real SENTRY feed connects, and any real message overrides it.
+let _demoLoaded=false;
+function loadDemoData(){
+  if(liveConnected||_demoLoaded) return; _demoLoaded=true;
+  // sensors look online so the catalog + status read "live" in the demo
+  B._sensors=[{channel:'rf',online:true,note:'RTL-SDR R820T (demo sample data)'},
+    {channel:'wifi',online:true,note:'Wi-Fi scanner (demo sample data)'},
+    {channel:'bluetooth',online:true,note:'BLE scanner (demo sample data)'},
+    {channel:'network',online:true,note:'LAN scanner (demo sample data)'}];
+  // a Wi-Fi-linked drone so the Drones tab is populated
+  if(!B.devices.some(d=>d.id==='demo-drone')) B.devices.push({
+    id:'demo-drone',kind:'DJI Mavic 3 (drone control link)',channel:'wifi',severity:'alert',
+    category:'unknown transmitter',name:'Mavic-3',maker:'DJI',model:'Mavic 3',mac:'60:60:1F:AB:CD:EF',
+    ident:'Wi-Fi control link · SSID "Mavic-3-7F2A"',bandtxt:'2.4 GHz',device_type:'Drone (Wi-Fi-linked)',
+    method:'Wi-Fi 2.4 GHz',behaviortxt:'DJI drone control/video Wi-Fi link broadcasting nearby',
+    surveilling:'Aerial video of the area around you',cancapture:'4K aerial video/photos to its controller',
+    capturingnow:'Drone link active nearby',confidence:88,rssi:-58,distance:35,uncertainty:6,
+    counter:['Look up — a drone broadcasting a control link is usually within line of sight.',
+      'Note the time and direction; if it lingers over your property, record it and report it.',
+      'Assume anything visible from above may have been recorded.']});
+  // Network tab: a believable scan + traffic + ARP audit
+  B._net_last={
+    nmap:{ok:true,label:'Quick scan',target:'192.168.1.0/24',host_count:4,summary:'4 hosts up · scanned in 18.3s',hosts:[
+      {ip:'192.168.1.1',hostname:'router.lan',vendor:'Sagemcom',os:'',os_accuracy:'',risk:{score:51,label:'high',reasons:['HTTP open (medium)','dnsmasq CVE (medium)','lighttpd CVE (medium)']},ports:[
+        {port:53,proto:'tcp',service:'domain',product:'dnsmasq',version:'2.89',note:'DNS — usually OK on a trusted LAN.',vulns:[{severity:'medium',id:'CVE-2023-50387 (KeyTrap)',what:'DNS/DNSSEC issues fixed in dnsmasq 2.90.',fix:'Update the router firmware.'}],scripts:[]},
+        {port:80,proto:'tcp',service:'http',product:'lighttpd',version:'1.4.59',note:'HTTP admin — login is clear-text on the LAN.',vulns:[{severity:'medium',id:'CVE-2022-22707',what:'Buffer issue in older lighttpd.',fix:'Update lighttpd / firmware.'}],scripts:[]},
+        {port:443,proto:'tcp',service:'https',product:'lighttpd',version:'1.4.59',note:'HTTPS — encrypted.',vulns:[],scripts:[]}]},
+      {ip:'192.168.1.64',hostname:'HIKVISION-DS2CD.lan',vendor:'Hangzhou Hikvision',os:'Linux',os_accuracy:'92',risk:{score:74,label:'critical',reasons:['RTSP camera stream (high)','default-credential risk (high)']},ports:[
+        {port:80,proto:'tcp',service:'http',product:'App-webs',version:'',note:'Camera web UI — change default password.',vulns:[],scripts:[]},
+        {port:554,proto:'tcp',service:'rtsp',product:'Hikvision',version:'',note:'RTSP video — anyone on the LAN may view the stream.',vulns:[{severity:'high',id:'default credentials',what:'Hikvision shipped admin/12345 historically.',fix:'Set a strong unique password; isolate cameras on a VLAN.'}],scripts:[{id:'rtsp-url',output:'rtsp://192.168.1.64:554/Streaming/Channels/101'}]}]},
+      {ip:'192.168.1.86',hostname:'living-room-tv.lan',vendor:'Vizio',os:'',os_accuracy:'',risk:{score:18,label:'low',reasons:['Cast port open (low)']},ports:[
+        {port:8009,proto:'tcp',service:'castv2',product:'Google Cast',version:'',note:'Chromecast/Cast endpoint — normal for a smart TV.',vulns:[],scripts:[]}]},
+      {ip:'192.168.1.108',hostname:'BRW-printer.lan',vendor:'Brother',os:'',os_accuracy:'',risk:{score:12,label:'low',reasons:['Raw print port (low)']},ports:[
+        {port:9100,proto:'tcp',service:'jetdirect',product:'Brother',version:'',note:'Raw printing — fine on a trusted LAN.',vulns:[],scripts:[]}]}]},
+    traffic:{ok:true,interface:'Wi-Fi',seconds:8,packets:3142,
+      protocols:[{proto:'TCP',packets:1840},{proto:'TLSv1.3',packets:712},{proto:'QUIC',packets:380},{proto:'DNS',packets:96},{proto:'mDNS',packets:74}],
+      encrypted:1092,plaintext:188,
+      dns:[{device:'192.168.1.86',query:'api.vizio.com'},{device:'192.168.1.64',query:'dev.hik-connect.com'},{device:'192.168.1.50',query:'graph.facebook.com'},{device:'192.168.1.50',query:'mtalk.google.com'}],
+      phone_home:[{device:'192.168.1.64',contacts:[{host:'dev.hik-connect.com'},{host:'amazon-cf.net'}]},{device:'192.168.1.86',contacts:[{host:'api.vizio.com'},{host:'tr.vizio.com'}]}],
+      top_talkers:[{ip:'192.168.1.50',bytes:1850000,name:'phone'},{ip:'192.168.1.86',bytes:420000,name:'TV'},{ip:'192.168.1.64',bytes:310000,name:'camera'}],
+      camera_tells:[{src:'192.168.1.64',dst:'192.168.1.50'}],ids:[],
+      rows:[{t:'10:42:01',src:'192.168.1.64',dst:'192.168.1.50',proto:'RTSP',port:554,size:1380,enc:false},{t:'10:42:01',src:'192.168.1.86',dst:'api.vizio.com',proto:'TLSv1.3',port:443,size:560,enc:true},{t:'10:42:02',src:'192.168.1.50',dst:'mtalk.google.com',proto:'TLSv1.3',port:5228,size:210,enc:true}],
+      note:'Metadata only — who talked to whom, how much, what protocol. Message CONTENT is never stored or decoded.'},
+    arp:{ok:true,gateway:'192.168.1.1',gateway_mac:'a0:55:1f:31:11:0e',host_count:11,findings:[{severity:'info',what:'No duplicate-MAC / ARP-spoofing signs. Gateway 192.168.1.1 → a0:55:1f:31:11:0e.',fix:'Looks clean.'}],table:[]}};
+  // RF sweep spectrum (deterministic — a believable floor + FM/ISM peaks)
+  const pts=[],lo=25,hi=1750;
+  for(let m=lo;m<=hi;m+=12){ let db=17+Math.sin(m*0.35)*1.6+Math.sin(m*0.07)*1.2;
+    if(m>=88&&m<=108) db=Math.max(db,58-Math.abs(m-98)*1.0);
+    if(Math.abs(m-315)<5) db=Math.max(db,46); if(Math.abs(m-433)<6) db=Math.max(db,71);
+    if(Math.abs(m-915)<8) db=Math.max(db,54); if(Math.abs(m-1227)<6) db=Math.max(db,40);
+    pts.push([m,Math.round(db*10)/10]); }
+  B._rf_spectrum={points:pts,low_mhz:lo,high_mhz:hi,floor:17,n:1,bands:[[313,317],[430,435],[860,870],[902,928]]};
+  B._net_nmap={available:true,version:'Nmap 7.95 (demo)'};
+  B._net_capture={available:true,interface:'Wi-Fi',note:'Wireshark/tshark found (demo sample).'};
+  // re-render everything that's open
+  if(typeof showSensorStatus==='function') showSensorStatus(B._sensors);
+  if(typeof renderAll==='function') renderAll();
+  if(typeof syncDevList==='function') syncDevList();
+  const active=(document.querySelector('.view.on')||{}).id;
+  if(active==='network'&&typeof startNetwork==='function') startNetwork();
+  if(active==='drones'&&typeof startDrones==='function') startDrones();
+  if(active==='threats'&&typeof startWatchers==='function') startWatchers();
+}
 setConnState(false);   // start in DEMO state until real data actually arrives
 connectBackend();
 
 renderAll(); startRadar();
+// if no real backend connects, fill the demo with rich sample data (banner stays up)
+setTimeout(()=>{ if(!liveConnected) loadDemoData(); }, 2500);
 </script>
 </body>
 </html>
