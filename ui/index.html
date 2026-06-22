@@ -109,6 +109,18 @@
   .futuregrp[open]>summary{color:var(--ink)}
   .futuregrp[open]>summary::before{content:'▾ '}
   .futgrid{margin-top:10px}
+  /* dark-theme the Leaflet map (controls, popups, scale) to match SENTRY */
+  .leaflet-container{background:#0d0d0d;font-family:'Inter',sans-serif}
+  .leaflet-bar a,.leaflet-control-layers{background:#1a1a1a;color:#f0f0f0;border-color:#333!important}
+  .leaflet-bar a{border-bottom-color:#333}
+  .leaflet-bar a:hover{background:#2a2a2a;color:#fff}
+  .leaflet-control-layers-expanded{padding:8px 11px;color:#f0f0f0;font-size:12px}
+  .leaflet-control-layers-toggle{filter:invert(1) hue-rotate(180deg)}
+  .leaflet-control-attribution{background:rgba(13,13,13,.65)!important;color:#808080!important}
+  .leaflet-control-attribution a{color:#00d3f2}
+  .leaflet-control-scale-line{background:rgba(26,26,26,.7);color:#f0f0f0;border-color:#555}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#1a1a1a;color:#f0f0f0}
+  .leaflet-popup-content a{color:#00d3f2}
   .chcard{background:var(--slate2);border:1px solid var(--line);border-radius:11px;padding:14px;cursor:pointer;transition:border-color .15s}
   .chcard:hover{border-color:var(--cyan)}
   .chcard .top{display:flex;align-items:center;gap:9px}
@@ -987,11 +999,14 @@ function leafStart(){
   const lm=$('leafmap'); if(!lm) return;
   if(typeof L==='undefined'){ lm.innerHTML='<div style="padding:14px;color:var(--amber);font-family:JetBrains Mono;font-size:11px">Real map needs internet to load (map library/tiles unavailable). RADAR works fully offline.</div>'; return; }
   if(!_leaf.map){
+    const dark=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:20,attribution:'© OpenStreetMap © CARTO'});
     const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'});
     const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagery © Esri'});
-    _leaf.map=L.map(lm,{zoomControl:true,layers:[street]}).setView([20,0],2);
-    // Street ↔ Satellite switcher (satellite shows real building outlines from above)
-    L.control.layers({'Street':street,'Satellite (buildings)':sat},null,{position:'topright'}).addTo(_leaf.map);
+    // Dark (matches SENTRY) is the default; Street is the classic map; Satellite
+    // shows real building outlines from above.
+    _leaf.map=L.map(lm,{zoomControl:true,layers:[dark]}).setView([20,0],2);
+    L.control.layers({'Dark':dark,'Street':street,'Satellite (buildings)':sat},null,{position:'topright'}).addTo(_leaf.map);
+    L.control.scale({imperial:true,metric:true,position:'bottomleft'}).addTo(_leaf.map);
   }
   setTimeout(()=>{ if(_leaf.map)_leaf.map.invalidateSize(); },200);
   if(!_leaf.watch) leafLocate();
