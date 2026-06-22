@@ -6,6 +6,9 @@
 <title>SENTRY Station</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<!-- Leaflet (free OpenStreetMap maps — no API key). Used by the Map view's real-map mode. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root{
     /* SENTRY tactical-instrument theme — true-dark, high-contrast (see CLAUDE.md) */
@@ -265,6 +268,10 @@
   <div class="view on" id="scan">
     <div class="mappane">
       <div class="ph"><span class="t">Proximity · distance only</span>
+        <div style="display:flex;gap:3px;margin-left:12px">
+          <button class="ox on" id="viewRadar" style="padding:3px 10px;font-size:10px">RADAR</button>
+          <button class="ox" id="viewMap" style="padding:3px 10px;font-size:10px">MAP</button>
+        </div>
         <div class="legend">
           <span class="lg"><span class="lgd" style="background:var(--alert)"></span>Alert</span>
           <span class="lg"><span class="lgd" style="background:var(--suspect)"></span>Suspect</span>
@@ -272,7 +279,7 @@
           <span class="lg"><span class="lgd" style="background:var(--clear)"></span>You</span>
         </div>
       </div>
-      <div class="radarwrap"><canvas id="radar" width="560" height="560"></canvas></div>
+      <div class="radarwrap" style="position:relative"><canvas id="radar" width="560" height="560"></canvas><div id="leafmap" style="display:none;position:absolute;inset:8px;border-radius:8px;z-index:1"></div></div>
       <div class="radarctl">
         <div class="rcside">
           <span class="ctrllbl">RANGE</span>
@@ -950,12 +957,74 @@ function drawRoomShell(g,cx,cy,R,maxRange){
 let _radarLast=0;
 function radarLoop(ts){
   radarRAF=requestAnimationFrame(radarLoop);
+  if(mapMode==='map') return;                            // real-map view is showing instead
   if(ts && (ts-_radarLast) < (1000/RADAR_FPS)) return;   // cap FPS — lighter on phones
   _radarLast=ts||0;
   drawRadar();   // redraw so dots move between distance rings live as you walk
 }
 function startRadar(){ if(!radarRAF) radarRAF=requestAnimationFrame(radarLoop); }
-function stopRadar(){ if(radarRAF){cancelAnimationFrame(radarRAF);radarRAF=null;} }
+function stopRadar(){ if(radarRAF){cancelAnimationFrame(radarRAF);radarRAF=null;} if(_leaf&&_leaf.timer){clearInterval(_leaf.timer);_leaf.timer=null;} }
+
+// ================= REAL MAP (Leaflet / OpenStreetMap) — distance-only, honest ====
+// A real street map centred on YOUR GPS location. Devices are drawn as DISTANCE
+// RINGS around you (radius = signal-strength distance), never as fake pinpoints —
+// SENTRY has no direction (that needs a directional antenna). Toggle: RADAR / MAP.
+let mapMode='radar';
+let _leaf={map:null,you:null,acc:null,rings:[],timer:null,located:false};
+function mapSetView(mode){
+  mapMode=mode; const onR=(mode==='radar');
+  const vr=$('viewRadar'),vm=$('viewMap'),cv=$('radar'),lm=$('leafmap'),mh=$('maphint');
+  if(vr)vr.classList.toggle('on',onR); if(vm)vm.classList.toggle('on',!onR);
+  if(cv)cv.style.display=onR?'':'none'; if(lm)lm.style.display=onR?'none':'block';
+  if(mode==='map'){
+    if(mh)mh.innerHTML='<b>Real map (OpenStreetMap), centred on your GPS location.</b> Each device is a <b>distance ring</b> around you — it\'s somewhere on that ring; <b>direction is unknown</b> (needs a directional antenna). Rings, not pins, because signal gives distance only. Needs internet (tiles) + location permission.';
+    leafStart();
+  } else { if(mh)mh.innerHTML='Tap a dot to open that device. Rings = estimated distance from signal strength (live). <b>No direction is shown</b> — use Locate to home in by signal. True direction needs the directional antenna (not installed).';
+    if(_leaf.timer){clearInterval(_leaf.timer);_leaf.timer=null;} }
+}
+function leafStart(){
+  const lm=$('leafmap'); if(!lm) return;
+  if(typeof L==='undefined'){ lm.innerHTML='<div style="padding:14px;color:var(--amber);font-family:JetBrains Mono;font-size:11px">Real map needs internet to load (map library/tiles unavailable). RADAR works fully offline.</div>'; return; }
+  if(!_leaf.map){
+    _leaf.map=L.map(lm,{zoomControl:true}).setView([20,0],2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_leaf.map);
+  }
+  setTimeout(()=>{ if(_leaf.map)_leaf.map.invalidateSize(); },200);
+  if(!_leaf.located) leafLocate();
+  leafUpdate();
+  if(_leaf.timer)clearInterval(_leaf.timer); _leaf.timer=setInterval(leafUpdate,2000);
+}
+function leafLocate(){
+  if(!navigator.geolocation||!_leaf.map) return;
+  navigator.geolocation.getCurrentPosition(p=>{
+    const lat=p.coords.latitude,lon=p.coords.longitude,acc=p.coords.accuracy||30;
+    _leaf.located=true; _leaf.map.setView([lat,lon],18);
+    if(_leaf.you)_leaf.map.removeLayer(_leaf.you); if(_leaf.acc)_leaf.map.removeLayer(_leaf.acc);
+    _leaf.you=L.circleMarker([lat,lon],{radius:7,color:'#33d17a',fillColor:'#33d17a',fillOpacity:1}).addTo(_leaf.map).bindTooltip('YOU');
+    _leaf.acc=L.circle([lat,lon],{radius:acc,color:'#33d17a',weight:1,opacity:.4,fillOpacity:.05}).addTo(_leaf.map);
+    leafUpdate();
+  }, err=>{ const mh=$('maphint'); if(mh)mh.innerHTML='<span style="color:var(--amber)">Location unavailable ('+(err.message||'permission denied')+'). Allow location access — works on localhost; a phone over plain http can\'t (needs https). Rings appear once located.</span>'; },
+  {enableHighAccuracy:true,timeout:8000,maximumAge:30000});
+}
+function leafUpdate(){
+  const lm=$('leafmap'); if(!lm||lm.style.display==='none') return;
+  if(!_leaf.map||!_leaf.you) return;
+  const c=_leaf.you.getLatLng();
+  _leaf.rings.forEach(r=>_leaf.map.removeLayer(r)); _leaf.rings=[];
+  const SC={alert:'#ff3b3b',suspect:'#ffb000',notable:'#8FA3B8'};
+  const devs=(B.devices||[]).filter(d=>d.rssi!=null&&d.distance!=null&&d.distance<=(gDistFilter||50)).slice(0,25);
+  devs.forEach(d=>{
+    const col=SC[d.severity]||'#00d3f2';
+    const ring=L.circle([c.lat,c.lng],{radius:Math.max(2,d.distance),color:col,weight:1.5,opacity:.7,fill:false,dashArray:'4 5'})
+      .addTo(_leaf.map).bindTooltip((d.kind||'device')+' · ~'+(d.distance.toFixed?d.distance.toFixed(0):d.distance)+' m (direction unknown)');
+    _leaf.rings.push(ring);
+  });
+}
+(function wireMapToggle(){
+  const vr=$('viewRadar'),vm=$('viewMap');
+  if(vr)vr.onclick=()=>mapSetView('radar');
+  if(vm)vm.onclick=()=>mapSetView('map');
+})();
 function setRange(m){ radarRange=Math.max(2,Math.min(50,Math.round(m))); const s=$('rangeSlider'),v=$('rangeVal'); if(s)s.value=radarRange; if(v)v.textContent='≈'+radarRange+' m'; }
 // click a blip to open that device
 (function wireRadarClick(){
@@ -2729,16 +2798,18 @@ function setConnState(live){
     ? '● LIVE FEED LOST — showing the LAST received data, not current. Reconnect the SENTRY backend or check Wi-Fi.'
     : '● DEMO DATA — NOT LIVE. Built-in sample data only; the SENTRY backend feed isn’t connected, so nothing here is a real detection.';
 }
+const SENSOR_SHORT={rf:'RF',wifi:'WI-FI',bluetooth:'BT',network:'NET',cellular:'CELL'};
 function showSensorStatus(sensors){
-  const on=sensors.filter(s=>s.online).map(s=>s.channel.toUpperCase());
-  const off=sensors.filter(s=>!s.online).map(s=>s.channel.toUpperCase());
+  const lbl=c=>SENSOR_SHORT[c]||(c||'').toUpperCase();
+  const on=sensors.filter(s=>s.online).map(s=>lbl(s.channel));
+  const off=sensors.filter(s=>!s.online).map(s=>lbl(s.channel));
+  // compact: just dots + short tags; the full coverage notes live on the
+  // Sensors & Toolkit channel cards (hover here for a quick summary).
+  const notes=sensors.filter(s=>s.note).map(s=>lbl(s.channel)+': '+s.note).join('\n');
   let html='';
-  if(on.length) html+='<span style="color:var(--clear)">● '+on.join(' · ')+' live</span>';
-  if(off.length) html+=' <span style="color:var(--dimmer)">○ '+off.join(' ')+' (needs hardware)</span>';
-  // honest coverage notes from each sensor (e.g. Windows Wi-Fi scan limits)
-  const notes=sensors.filter(s=>s.note).map(s=>s.channel.toUpperCase()+': '+s.note);
-  if(notes.length) html+='<div style="color:var(--dimmer);font-size:10px;margin-top:3px">'+notes.join('<br>')+'</div>';
-  const el=$('sensorStatus'); if(el) el.innerHTML=html;
+  if(on.length) html+='<span style="color:var(--clear)">● '+on.join(' ')+'</span>';
+  if(off.length) html+=' <span style="color:var(--dimmer)">○ '+off.join(' ')+'</span>';
+  const el=$('sensorStatus'); if(el){ el.innerHTML=html; el.title=notes||''; }
 }
 let liveWs=null, _reconnectTimer=null, _reconnectDelay=1000;
 // Auto-reconnect: if the live feed drops (server restart, phone Wi-Fi sleep,
