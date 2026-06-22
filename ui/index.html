@@ -970,7 +970,8 @@ function stopRadar(){ if(radarRAF){cancelAnimationFrame(radarRAF);radarRAF=null;
 // RINGS around you (radius = signal-strength distance), never as fake pinpoints —
 // SENTRY has no direction (that needs a directional antenna). Toggle: RADAR / MAP.
 let mapMode='radar';
-let _leaf={map:null,you:null,acc:null,rings:[],timer:null,located:false};
+let _leaf={map:null,you:null,acc:null,rings:[],timer:null,located:false,
+  watch:null,target:null,samples:[],pin:null,sampleRings:[],lastSample:null};
 function mapSetView(mode){
   mapMode=mode; const onR=(mode==='radar');
   const vr=$('viewRadar'),vm=$('viewMap'),cv=$('radar'),lm=$('leafmap'),mh=$('maphint');
@@ -986,25 +987,31 @@ function leafStart(){
   const lm=$('leafmap'); if(!lm) return;
   if(typeof L==='undefined'){ lm.innerHTML='<div style="padding:14px;color:var(--amber);font-family:JetBrains Mono;font-size:11px">Real map needs internet to load (map library/tiles unavailable). RADAR works fully offline.</div>'; return; }
   if(!_leaf.map){
-    _leaf.map=L.map(lm,{zoomControl:true}).setView([20,0],2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_leaf.map);
+    const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'});
+    const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Imagery © Esri'});
+    _leaf.map=L.map(lm,{zoomControl:true,layers:[street]}).setView([20,0],2);
+    // Street ↔ Satellite switcher (satellite shows real building outlines from above)
+    L.control.layers({'Street':street,'Satellite (buildings)':sat},null,{position:'topright'}).addTo(_leaf.map);
   }
   setTimeout(()=>{ if(_leaf.map)_leaf.map.invalidateSize(); },200);
-  if(!_leaf.located) leafLocate();
+  if(!_leaf.watch) leafLocate();
   leafUpdate();
   if(_leaf.timer)clearInterval(_leaf.timer); _leaf.timer=setInterval(leafUpdate,2000);
 }
 function leafLocate(){
-  if(!navigator.geolocation||!_leaf.map) return;
-  navigator.geolocation.getCurrentPosition(p=>{
+  if(!navigator.geolocation||!_leaf.map||_leaf.watch) return;
+  // watchPosition (not one-shot) so YOU follows you as you walk — needed to triangulate.
+  _leaf.watch=navigator.geolocation.watchPosition(p=>{
     const lat=p.coords.latitude,lon=p.coords.longitude,acc=p.coords.accuracy||30;
-    _leaf.located=true; _leaf.map.setView([lat,lon],18);
+    const first=!_leaf.located; _leaf.located=true;
+    if(first) _leaf.map.setView([lat,lon],19);
     if(_leaf.you)_leaf.map.removeLayer(_leaf.you); if(_leaf.acc)_leaf.map.removeLayer(_leaf.acc);
     _leaf.you=L.circleMarker([lat,lon],{radius:7,color:'#33d17a',fillColor:'#33d17a',fillOpacity:1}).addTo(_leaf.map).bindTooltip('YOU');
     _leaf.acc=L.circle([lat,lon],{radius:acc,color:'#33d17a',weight:1,opacity:.4,fillOpacity:.05}).addTo(_leaf.map);
+    triCollect(lat,lon);   // gather a triangulation sample for the locked target, if any
     leafUpdate();
   }, err=>{ const mh=$('maphint'); if(mh)mh.innerHTML='<span style="color:var(--amber)">Location unavailable ('+(err.message||'permission denied')+'). Allow location access — works on localhost; a phone over plain http can\'t (needs https). Rings appear once located.</span>'; },
-  {enableHighAccuracy:true,timeout:8000,maximumAge:30000});
+  {enableHighAccuracy:true,timeout:10000,maximumAge:4000});
 }
 function leafUpdate(){
   const lm=$('leafmap'); if(!lm||lm.style.display==='none') return;
@@ -1014,11 +1021,59 @@ function leafUpdate(){
   const SC={alert:'#ff3b3b',suspect:'#ffb000',notable:'#8FA3B8'};
   const devs=(B.devices||[]).filter(d=>d.rssi!=null&&d.distance!=null&&d.distance<=(gDistFilter||50)).slice(0,25);
   devs.forEach(d=>{
-    const col=SC[d.severity]||'#00d3f2';
-    const ring=L.circle([c.lat,c.lng],{radius:Math.max(2,d.distance),color:col,weight:1.5,opacity:.7,fill:false,dashArray:'4 5'})
-      .addTo(_leaf.map).bindTooltip((d.kind||'device')+' · ~'+(d.distance.toFixed?d.distance.toFixed(0):d.distance)+' m (direction unknown)');
+    const sel=(_leaf.target===d.id), col=sel?'#00d3f2':(SC[d.severity]||'#48C9E0');
+    const ring=L.circle([c.lat,c.lng],{radius:Math.max(2,d.distance),color:col,weight:sel?2.5:1.5,opacity:sel?.95:.7,fill:false,dashArray:sel?null:'4 5'})
+      .addTo(_leaf.map).bindTooltip((d.kind||'device')+' · ~'+(d.distance.toFixed?d.distance.toFixed(0):d.distance)+' m'+(sel?' · LOCATING (tap again to stop)':' — tap to LOCATE (direction unknown)'));
+    ring.on('click',()=>{ _leaf.target===d.id?leafClearTarget():leafTarget(d.id); });
     _leaf.rings.push(ring);
   });
+}
+// ----- honest "pinpoint by walking" — multilateration of distance circles -----
+function leafTarget(id){
+  _leaf.target=id; _leaf.samples=[]; _leaf.lastSample=null; triClearGfx();
+  const d=(B.devices||[]).find(x=>x.id===id);
+  triStatus('🎯 Locating <b>'+((d&&d.kind)||'device')+'</b> — WALK to 3+ spots a few metres apart. The circles will cross at it; an estimated pin drops once they do. Distances are signal-rough, so the pin is approximate. <a href="#" onclick="leafClearTarget();return false" style="color:var(--cyan)">stop</a>');
+  leafUpdate();
+}
+function leafClearTarget(){ _leaf.target=null; _leaf.samples=[]; _leaf.lastSample=null; triClearGfx(); triStatus(''); leafUpdate(); }
+function triClearGfx(){
+  if(_leaf.pin){_leaf.map.removeLayer(_leaf.pin);_leaf.pin=null;}
+  (_leaf.sampleRings||[]).forEach(r=>_leaf.map.removeLayer(r)); _leaf.sampleRings=[];
+}
+function triStatus(html){ const mh=$('maphint'); if(mh) mh.innerHTML = html || 'Real map, centred on your GPS location. Tap a device ring to LOCATE it by walking. Distance only — direction unknown without a directional antenna.'; }
+function _m(a,b){ return [(b.lat-a.lat)*111320, (b.lon-a.lon)*111320*Math.cos(a.lat*Math.PI/180)]; } // (dy,dx) metres
+function triCollect(lat,lon){
+  if(!_leaf.target) return;
+  const d=(B.devices||[]).find(x=>x.id===_leaf.target);
+  if(!d||d.distance==null) return;
+  // only record when you've actually moved ≥3 m from the last sample (diversity)
+  if(_leaf.lastSample){ const [dy,dx]=_m({lat:_leaf.lastSample.lat,lon:_leaf.lastSample.lon},{lat,lon}); if(Math.hypot(dx,dy)<3) return; }
+  const s={lat,lon,r:Math.max(1,d.distance)}; _leaf.samples.push(s); _leaf.lastSample=s;
+  if(_leaf.samples.length>12) _leaf.samples.shift();
+  triClearGfx();
+  // faint circle from each vantage point — the device sits where they overlap
+  _leaf.samples.forEach(p=>{ _leaf.sampleRings.push(L.circle([p.lat,p.lon],{radius:p.r,color:'#00d3f2',weight:1,opacity:.45,fill:false}).addTo(_leaf.map)); });
+  const est=triEstimate(_leaf.samples);
+  if(est){
+    _leaf.pin=L.circleMarker([est.lat,est.lon],{radius:9,color:'#fff',weight:2,fillColor:'#00d3f2',fillOpacity:1}).addTo(_leaf.map)
+      .bindTooltip('≈ estimated location of "'+((d&&d.kind)||'device')+'" (approx)',{direction:'top'})
+      .bindPopup('<b>≈ Estimated location</b><br>'+((d&&d.kind)||'device')+'<br><small>From '+_leaf.samples.length+' distance readings as you moved. Approximate — signal distance is rough.</small>');
+  }
+}
+// least-squares trilateration: find the point best fitting all distance circles
+function triEstimate(samples){
+  if(!samples||samples.length<3) return null;
+  const o=samples[0], mLat=111320, mLon=111320*Math.cos(o.lat*Math.PI/180);
+  const P=samples.map(s=>({x:(s.lon-o.lon)*mLon, y:(s.lat-o.lat)*mLat, r:s.r}));
+  // linearise by subtracting the first equation from the rest → A·[x,y]=b (least sq)
+  const x0=P[0].x,y0=P[0].y,r0=P[0].r; let Saa=0,Sab=0,Sbb=0,Sac=0,Sbc=0;
+  for(let i=1;i<P.length;i++){ const a=2*(P[i].x-x0), b=2*(P[i].y-y0),
+      c=(r0*r0-P[i].r*P[i].r)+(P[i].x*P[i].x-x0*x0)+(P[i].y*P[i].y-y0*y0);
+    Saa+=a*a; Sab+=a*b; Sbb+=b*b; Sac+=a*c; Sbc+=b*c; }
+  const det=Saa*Sbb-Sab*Sab; if(Math.abs(det)<1e-6) return null;   // samples not diverse enough
+  const x=(Sac*Sbb-Sbc*Sab)/det, y=(Saa*Sbc-Sab*Sac)/det;
+  if(!isFinite(x)||!isFinite(y)||Math.hypot(x,y)>500) return null;  // reject wild solutions
+  return {lat:o.lat+y/mLat, lon:o.lon+x/mLon};
 }
 (function wireMapToggle(){
   const vr=$('viewRadar'),vm=$('viewMap');
