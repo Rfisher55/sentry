@@ -1005,7 +1005,7 @@ function leafStart(){
     // Dark (matches SENTRY) is the default; Street is the classic map; Satellite
     // shows real building outlines from above.
     _leaf.map=L.map(lm,{zoomControl:true,layers:[dark]}).setView([20,0],2);
-    L.control.layers({'Dark':dark,'Street':street,'Satellite (buildings)':sat},null,{position:'topright'}).addTo(_leaf.map);
+    L.control.layers({'Dark':dark,'Street':street,'Satellite (buildings)':sat},null,{position:'topright',collapsed:false}).addTo(_leaf.map);
     L.control.scale({imperial:true,metric:true,position:'bottomleft'}).addTo(_leaf.map);
   }
   setTimeout(()=>{ if(_leaf.map)_leaf.map.invalidateSize(); },200);
